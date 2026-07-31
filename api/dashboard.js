@@ -44,10 +44,20 @@ function tabStats(rows, hasProfit, hasPaid) {
   return out;
 }
 
-function historyStats(rows) {
-  const data = (rows || []).slice(1).filter((r) => (r[3] || "").toString().trim());
-  const paid = data.filter((r) => r[8] === "Yes").length;
-  return { count: data.length, paid, unpaid: data.length - paid };
+const OVERDUE_DAYS = 10;
+
+function parseDdMmYyyy(s) {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(String(s || "").trim());
+  return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null;
+}
+
+function collectOverdue(rows) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - OVERDUE_DAYS);
+  return (rows || []).slice(1)
+    .filter((r) => (r[3] || "").toString().trim() && r[8] === "No")
+    .filter((r) => { const d = parseDdMmYyyy(r[2]); return d && d < cutoff; })
+    .map((r) => ({ event: r[0] || "", date: r[2] || "", order: r[3] || "", payout: r[7] || "" }));
 }
 
 function esc(s) {
@@ -68,7 +78,7 @@ function table(recent) {
     (hasPaid ? `<th>Paid</th>` : "") + `</tr>${rows}</table>`;
 }
 
-function render(lysted, viagogo, hist) {
+function render(lysted, viagogo, overdue) {
   return `<!doctype html><html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Minion Tickets</title><style>
@@ -82,19 +92,22 @@ table{width:100%;border-collapse:collapse;background:#1a2233;border-radius:12px;
 td,th{padding:9px 12px;font-size:13px;text-align:left;border-bottom:1px solid #26314a}
 th{color:#8b9bb5;font-weight:600}tr:last-child td{border-bottom:none}
 .foot{color:#556381;font-size:12px;margin-top:26px}
+.alert{background:#3a1f24;border:1px solid #7a3540;border-radius:12px;padding:14px 18px;margin:18px 0;color:#ffd9de}
+.alert table{background:#2c181d}.alert td,.alert th{border-bottom:1px solid #4a262e}
 </style></head><body>
 <h1>Minion Tickets</h1><div class="sub">Live sales dashboard</div>
+${overdue && overdue.length ? `<div class="alert"><b>&#9888; ${overdue.length} overdue payment${overdue.length > 1 ? "s" : ""}</b> - unpaid more than ${OVERDUE_DAYS} days after the event:
+<table style="margin-top:10px"><tr><th>Event</th><th>Event date</th><th>Order</th><th>Amount</th></tr>
+${overdue.map((o) => `<tr><td>${esc(o.event)}</td><td>${esc(o.date)}</td><td>${esc(o.order)}</td><td>${esc(o.payout)}</td></tr>`).join("")}
+</table></div>` : ""}
 <h2>Lysted</h2><div class="cards">
 ${card(lysted.count, "Sales")}${card(lysted.payout, "Total payout")}${card(lysted.profit, "Total profit")}
 </div>
 <h2>Recent Lysted sales</h2>${table(lysted.recent)}
-<h2>Viagogo</h2><div class="cards">
+<h2>Viagogo (all time)</h2><div class="cards">
 ${card(viagogo.count, "Sales")}${card(viagogo.payout, "Total payout")}${viagogo.paid !== undefined ? card(viagogo.paid, "Paid") + card(viagogo.unpaid, "Not yet paid") : ""}
 </div>
 <h2>Recent Viagogo sales</h2>${table(viagogo.recent)}
-${hist ? `<h2>Viagogo history (since Jul 2025)</h2><div class="cards">
-${card(hist.count, "Sales")}${card(hist.paid, "Paid")}${card(hist.unpaid, "Not yet paid")}
-</div>` : ""}
 <div class="foot">Data live from Google Sheets &middot; refresh any time.</div>
 </body></html>`;
 }
@@ -125,19 +138,11 @@ module.exports = async (req, res) => {
     const lysted = tabStats(main.data.valueRanges[0].values, true);
     const viagogo = tabStats(main.data.valueRanges[1].values, false, true);
 
-    let hist = null;
-    if (process.env.HISTORY_SHEET_ID) {
-      try {
-        const h = await sheets.spreadsheets.values.get({
-          spreadsheetId: process.env.HISTORY_SHEET_ID, range: "Viagogo!A:I",
-        });
-        hist = historyStats(h.data.values);
-      } catch (e) { hist = null; }
-    }
+    const overdue = collectOverdue(main.data.valueRanges[1].values);
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", "no-store");
-    return res.status(200).send(render(lysted, viagogo, hist));
+    return res.status(200).send(render(lysted, viagogo, overdue));
   } catch (e) {
     return res.status(500).send(
       "Dashboard error: " + esc(e.message) +
