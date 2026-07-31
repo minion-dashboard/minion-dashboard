@@ -154,7 +154,7 @@ box-shadow:0 8px 32px rgba(120,0,40,.25),inset 0 1px 0 rgba(255,255,255,.12)}
 border-radius:10px;padding:6px 12px;font-size:12px;cursor:pointer}
 .btn:hover{background:rgba(255,120,150,.18)}
 </style></head><body>
-<div class="top"><h1>MINION TICKETS</h1><div class="badge">Live dashboard</div></div>
+<div class="top"><h1>MINION TICKETS</h1><a class="badge" href="/orders" style="text-decoration:none">Orders &rarr;</a></div>
 ${overdue && overdue.length ? `<div class="alert"><div class="phead">&#9888; ${overdue.length} overdue payment${overdue.length > 1 ? "s" : ""} - unpaid ${OVERDUE_DAYS}+ days after the event</div><div class="pbody">
 <table><tr><th>Event</th><th>Event date</th><th>Order</th><th>Amount</th><th></th></tr>
 ${overdue.map((o) => `<tr><td>${esc(o.event)}</td><td>${esc(o.date)}</td><td>${esc(o.order)}</td><td>${esc(o.payout)}</td><td><button class="btn" onclick="cancelOrder('${esc(o.order)}')">Mark cancelled</button></td></tr>`).join("")}
