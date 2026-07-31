@@ -72,13 +72,18 @@ function parseDdMmYyyy(s) {
   return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null;
 }
 
-function collectOverdue(rows) {
+function collectOverdue(rawRows, fmtRows) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - OVERDUE_DAYS);
-  return (rows || []).slice(1)
-    .filter((r) => (r[3] || "").toString().trim() && r[8] === "No")
-    .filter((r) => { const d = cellToDate(r[2]); return d && d < cutoff; })
-    .map((r) => ({ event: r[0] || "", date: fmtDate(r[2]), order: r[3] || "", payout: r[7] || "" }));
+  const out = [];
+  (rawRows || []).slice(1).forEach((r, i) => {
+    if (!(r[3] || "").toString().trim() || r[8] !== "No") return;
+    const d = cellToDate(r[2]);
+    if (!d || d >= cutoff) return;
+    const f = (fmtRows || [])[i + 1] || r;  // formatted twin row for display
+    out.push({ event: f[0] || "", date: fmtDate(f[2]), order: String(f[3] || ""), payout: f[7] || "" });
+  });
+  return out;
 }
 
 function esc(s) {
@@ -103,33 +108,66 @@ function render(lysted, viagogo, overdue) {
   return `<!doctype html><html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Minion Tickets</title><style>
-body{font-family:Segoe UI,Arial,sans-serif;background:#0f1420;margin:0;padding:20px;color:#e8ecf3}
-h1{font-size:24px;margin:0 0 4px}h2{font-size:15px;margin:26px 0 10px;color:#9fb0c8;text-transform:uppercase;letter-spacing:.08em}
-.sub{color:#7787a0;font-size:13px;margin-bottom:8px}
+*{box-sizing:border-box}
+body{font-family:Segoe UI,Arial,sans-serif;margin:0;padding:22px;color:#eef0ff;
+background:#0a0a14;min-height:100vh;position:relative}
+body::before{content:"";position:fixed;inset:0;z-index:-1;background:
+radial-gradient(600px 500px at 12% 8%,rgba(139,124,247,.42),transparent 60%),
+radial-gradient(700px 600px at 88% 20%,rgba(56,189,248,.30),transparent 60%),
+radial-gradient(700px 700px at 45% 95%,rgba(217,70,239,.26),transparent 60%),
+#0a0a14}
+.top{background:rgba(255,255,255,.07);backdrop-filter:blur(22px) saturate(160%);
+-webkit-backdrop-filter:blur(22px) saturate(160%);
+border:1px solid rgba(255,255,255,.16);border-radius:20px;padding:18px 24px;
+display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;
+box-shadow:0 8px 32px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.18)}
+h1{font-size:26px;margin:0;font-weight:800;letter-spacing:.5px;
+background:linear-gradient(90deg,#e6dcff,#a8b8ff);-webkit-background-clip:text;background-clip:text;color:transparent;
+text-shadow:0 0 30px rgba(160,150,255,.35)}
+.badge{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.08);
+color:#cfd2f4;font-size:11px;padding:6px 12px;border-radius:999px;letter-spacing:.12em;text-transform:uppercase}
+.panel{background:rgba(255,255,255,.06);backdrop-filter:blur(22px) saturate(160%);
+-webkit-backdrop-filter:blur(22px) saturate(160%);
+border:1px solid rgba(255,255,255,.14);border-radius:20px;margin-bottom:18px;overflow:hidden;
+box-shadow:0 8px 32px rgba(0,0,0,.30),inset 0 1px 0 rgba(255,255,255,.14)}
+.phead{padding:13px 20px;border-bottom:1px solid rgba(255,255,255,.10);font-size:12px;font-weight:700;
+letter-spacing:.14em;text-transform:uppercase;color:#c3c6ea}
+.pbody{padding:16px 20px}
 .cards{display:flex;flex-wrap:wrap;gap:12px}
-.card{background:#1a2233;border-radius:12px;padding:16px 20px;min-width:150px;box-shadow:0 2px 8px rgba(0,0,0,.35)}
-.card .n{font-size:22px;font-weight:600}.card .l{font-size:12px;color:#8b9bb5;margin-top:2px}
-table{width:100%;border-collapse:collapse;background:#1a2233;border-radius:12px;overflow:hidden}
-td,th{padding:9px 12px;font-size:13px;text-align:left;border-bottom:1px solid #26314a}
-th{color:#8b9bb5;font-weight:600}tr:last-child td{border-bottom:none}
-.foot{color:#556381;font-size:12px;margin-top:26px}
-.alert{background:#3a1f24;border:1px solid #7a3540;border-radius:12px;padding:14px 18px;margin:18px 0;color:#ffd9de}
-.alert table{background:#2c181d}.alert td,.alert th{border-bottom:1px solid #4a262e}
+.card{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);
+border-radius:16px;padding:14px 20px;min-width:150px;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.16)}
+.card .n{font-size:22px;font-weight:700;color:#dcd6ff;text-shadow:0 0 18px rgba(160,150,255,.45)}
+.card .l{font-size:11px;color:#a7abd6;margin-top:3px;letter-spacing:.08em;text-transform:uppercase}
+table{width:100%;border-collapse:collapse}
+td,th{padding:9px 12px;font-size:13px;text-align:left;border-bottom:1px solid rgba(255,255,255,.09)}
+th{color:#a7abd6;font-size:11px;letter-spacing:.1em;text-transform:uppercase}
+tr:last-child td{border-bottom:none}
+.alert{background:rgba(255,80,120,.10);backdrop-filter:blur(22px) saturate(160%);
+-webkit-backdrop-filter:blur(22px) saturate(160%);
+border:1px solid rgba(255,120,150,.35);border-radius:20px;margin-bottom:18px;overflow:hidden;
+box-shadow:0 8px 32px rgba(120,0,40,.25),inset 0 1px 0 rgba(255,255,255,.12)}
+.alert .phead{color:#ffb3c8;border-bottom:1px solid rgba(255,120,150,.22)}
+.alert td,.alert th{border-bottom:1px solid rgba(255,120,150,.16)}
+.foot{color:#8286b4;font-size:12px;margin-top:8px}
 </style></head><body>
-<h1>Minion Tickets</h1><div class="sub">Live sales dashboard</div>
-${overdue && overdue.length ? `<div class="alert"><b>&#9888; ${overdue.length} overdue payment${overdue.length > 1 ? "s" : ""}</b> - unpaid more than ${OVERDUE_DAYS} days after the event:
-<table style="margin-top:10px"><tr><th>Event</th><th>Event date</th><th>Order</th><th>Amount</th></tr>
+<div class="top"><h1>MINION TICKETS</h1><div class="badge">Live dashboard</div></div>
+${overdue && overdue.length ? `<div class="alert"><div class="phead">&#9888; ${overdue.length} overdue payment${overdue.length > 1 ? "s" : ""} - unpaid ${OVERDUE_DAYS}+ days after the event</div><div class="pbody">
+<table><tr><th>Event</th><th>Event date</th><th>Order</th><th>Amount</th></tr>
 ${overdue.map((o) => `<tr><td>${esc(o.event)}</td><td>${esc(o.date)}</td><td>${esc(o.order)}</td><td>${esc(o.payout)}</td></tr>`).join("")}
-</table></div>` : ""}
-<h2>Lysted</h2><div class="cards">
-${card(lysted.count, "Sales")}${card(lysted.payout, "Total payout")}${card(lysted.profit, "Total profit")}
-</div>
-<h2>Recent Lysted sales</h2>${table(lysted.recent)}
-<h2>Viagogo (all time)</h2><div class="cards">
-${card(viagogo.count, "Sales")}${card(viagogo.payout, "Total payout")}${viagogo.paid !== undefined ? card(viagogo.paid, "Paid") + card(viagogo.unpaid, "Not yet paid") : ""}
-</div>
-<h2>Recent Viagogo sales</h2>${table(viagogo.recent)}
-<div class="foot">Data live from Google Sheets &middot; refresh any time.</div>
+</table></div></div>` : ""}
+<div class="panel"><div class="phead">Lysted</div><div class="pbody">
+<div class="cards">${card(lysted.count, "Sales")}${card(lysted.payout, "Total payout")}${card(lysted.profit, "Total profit")}</div>
+<h2 style="display:none"></h2>
+<div style="height:16px"></div>
+${table(lysted.recent)}
+</div></div>
+<div class="panel"><div class="phead">Viagogo (all time)</div><div class="pbody">
+<div class="cards">${card(viagogo.count, "Sales")}${card(viagogo.payout, "Total payout")}${viagogo.paid !== undefined ? card(viagogo.paid, "Paid") + card(viagogo.unpaid, "Not yet paid") : ""}</div>
+<div style="height:16px"></div>
+${table(viagogo.recent)}
+</div></div>
+<div class="foot">Data live from your sheets &middot; refresh any time.</div>
 </body></html>`;
 }
 
@@ -152,15 +190,17 @@ module.exports = async (req, res) => {
       ["https://www.googleapis.com/auth/spreadsheets.readonly"]);
     const sheets = google.sheets({ version: "v4", auth });
 
-    const main = await sheets.spreadsheets.values.batchGet({
-      spreadsheetId: MAIN_SHEET_ID,
-      ranges: [`${LYSTED_TAB}!A:I`, `${VIAGOGO_TAB}!A:I`],
-      valueRenderOption: "UNFORMATTED_VALUE",
-    });
-    const lysted = tabStats(main.data.valueRanges[0].values, true);
-    const viagogo = tabStats(main.data.valueRanges[1].values, false, true);
+    const ranges = [`${LYSTED_TAB}!A:I`, `${VIAGOGO_TAB}!A:I`];
+    const [fmt, raw] = await Promise.all([
+      sheets.spreadsheets.values.batchGet({ spreadsheetId: MAIN_SHEET_ID, ranges }),
+      sheets.spreadsheets.values.batchGet({
+        spreadsheetId: MAIN_SHEET_ID, ranges, valueRenderOption: "UNFORMATTED_VALUE",
+      }),
+    ]);
+    const lysted = tabStats(fmt.data.valueRanges[0].values, true);
+    const viagogo = tabStats(fmt.data.valueRanges[1].values, false, true);
 
-    const overdue = collectOverdue(main.data.valueRanges[1].values);
+    const overdue = collectOverdue(raw.data.valueRanges[1].values, fmt.data.valueRanges[1].values);
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", "no-store");
