@@ -173,7 +173,7 @@ ${table(viagogo.recent)}
 <div class="foot">Data live from your sheets &middot; refresh any time.</div>
 <script>
 function cancelOrder(id){
-  if(!confirm("Mark order " + id + " as cancelled?\nIt will be removed from the overdue list and payment tracking.")) return;
+  if(!confirm("Mark order " + id + " as cancelled? It will be removed from the overdue list and payment tracking.")) return;
   fetch("?cancel=" + encodeURIComponent(id), {method:"POST"})
     .then(r => r.ok ? location.reload() : r.text().then(t => alert("Failed: " + t)))
     .catch(e => alert("Failed: " + e));
