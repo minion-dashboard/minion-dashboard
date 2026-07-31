@@ -25,17 +25,23 @@ function sumMoney(values) {
   return parts.join("  ") || "-";
 }
 
-function tabStats(rows, hasProfit) {
+function tabStats(rows, hasProfit, hasPaid) {
   const data = (rows || []).slice(1).filter((r) => (r[3] || "").toString().trim());
   const recent = data.slice(-8).reverse().map((r) => ({
     event: r[0] || "", date: r[2] || "", qty: r[6] || "", payout: r[7] || "",
+    paid: hasPaid ? (r[8] || "") : null,
   }));
-  return {
+  const out = {
     count: data.length,
     payout: sumMoney(data.map((r) => r[7])),
     profit: hasProfit ? sumMoney(data.map((r) => r[8])) : null,
     recent,
   };
+  if (hasPaid) {
+    out.paid = data.filter((r) => r[8] === "Yes").length;
+    out.unpaid = data.filter((r) => r[8] === "No").length;
+  }
+  return out;
 }
 
 function historyStats(rows) {
@@ -53,10 +59,13 @@ function card(n, label) {
 }
 
 function table(recent) {
+  const hasPaid = recent.some((r) => r.paid !== null && r.paid !== undefined);
   const rows = recent.map((r) =>
-    `<tr><td>${esc(r.event)}</td><td>${esc(r.date)}</td><td>${esc(r.qty)}</td><td>${esc(r.payout)}</td></tr>`
+    `<tr><td>${esc(r.event)}</td><td>${esc(r.date)}</td><td>${esc(r.qty)}</td><td>${esc(r.payout)}</td>` +
+    (hasPaid ? `<td>${esc(r.paid || "")}</td>` : "") + `</tr>`
   ).join("");
-  return `<table><tr><th>Event</th><th>Date</th><th>Qty</th><th>Payout</th></tr>${rows}</table>`;
+  return `<table><tr><th>Event</th><th>Date</th><th>Qty</th><th>Payout</th>` +
+    (hasPaid ? `<th>Paid</th>` : "") + `</tr>${rows}</table>`;
 }
 
 function render(lysted, viagogo, hist) {
@@ -80,7 +89,7 @@ ${card(lysted.count, "Sales")}${card(lysted.payout, "Total payout")}${card(lyste
 </div>
 <h2>Recent Lysted sales</h2>${table(lysted.recent)}
 <h2>Viagogo</h2><div class="cards">
-${card(viagogo.count, "Sales")}${card(viagogo.payout, "Total payout")}
+${card(viagogo.count, "Sales")}${card(viagogo.payout, "Total payout")}${viagogo.paid !== undefined ? card(viagogo.paid, "Paid") + card(viagogo.unpaid, "Not yet paid") : ""}
 </div>
 <h2>Recent Viagogo sales</h2>${table(viagogo.recent)}
 ${hist ? `<h2>Viagogo history (since Jul 2025)</h2><div class="cards">
@@ -111,10 +120,10 @@ module.exports = async (req, res) => {
 
     const main = await sheets.spreadsheets.values.batchGet({
       spreadsheetId: MAIN_SHEET_ID,
-      ranges: [`${LYSTED_TAB}!A:I`, `${VIAGOGO_TAB}!A:H`],
+      ranges: [`${LYSTED_TAB}!A:I`, `${VIAGOGO_TAB}!A:I`],
     });
     const lysted = tabStats(main.data.valueRanges[0].values, true);
-    const viagogo = tabStats(main.data.valueRanges[1].values, false);
+    const viagogo = tabStats(main.data.valueRanges[1].values, false, true);
 
     let hist = null;
     if (process.env.HISTORY_SHEET_ID) {
