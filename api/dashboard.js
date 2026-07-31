@@ -150,11 +150,14 @@ box-shadow:0 8px 32px rgba(120,0,40,.25),inset 0 1px 0 rgba(255,255,255,.12)}
 .alert .phead{color:#ffb3c8;border-bottom:1px solid rgba(255,120,150,.22)}
 .alert td,.alert th{border-bottom:1px solid rgba(255,120,150,.16)}
 .foot{color:#8286b4;font-size:12px;margin-top:8px}
+.btn{background:rgba(255,255,255,.10);border:1px solid rgba(255,150,170,.40);color:#ffc9d6;
+border-radius:10px;padding:6px 12px;font-size:12px;cursor:pointer}
+.btn:hover{background:rgba(255,120,150,.18)}
 </style></head><body>
 <div class="top"><h1>MINION TICKETS</h1><div class="badge">Live dashboard</div></div>
 ${overdue && overdue.length ? `<div class="alert"><div class="phead">&#9888; ${overdue.length} overdue payment${overdue.length > 1 ? "s" : ""} - unpaid ${OVERDUE_DAYS}+ days after the event</div><div class="pbody">
-<table><tr><th>Event</th><th>Event date</th><th>Order</th><th>Amount</th></tr>
-${overdue.map((o) => `<tr><td>${esc(o.event)}</td><td>${esc(o.date)}</td><td>${esc(o.order)}</td><td>${esc(o.payout)}</td></tr>`).join("")}
+<table><tr><th>Event</th><th>Event date</th><th>Order</th><th>Amount</th><th></th></tr>
+${overdue.map((o) => `<tr><td>${esc(o.event)}</td><td>${esc(o.date)}</td><td>${esc(o.order)}</td><td>${esc(o.payout)}</td><td><button class="btn" onclick="cancelOrder('${esc(o.order)}')">Mark cancelled</button></td></tr>`).join("")}
 </table></div></div>` : ""}
 <div class="panel"><div class="phead">Lysted</div><div class="pbody">
 <div class="cards">${card(lysted.count, "Sales")}${card(lysted.payout, "Total payout")}${card(lysted.profit, "Total profit")}</div>
@@ -168,6 +171,14 @@ ${table(lysted.recent)}
 ${table(viagogo.recent)}
 </div></div>
 <div class="foot">Data live from your sheets &middot; refresh any time.</div>
+<script>
+function cancelOrder(id){
+  if(!confirm("Mark order " + id + " as cancelled?\nIt will be removed from the overdue list and payment tracking.")) return;
+  fetch("?cancel=" + encodeURIComponent(id), {method:"POST"})
+    .then(r => r.ok ? location.reload() : r.text().then(t => alert("Failed: " + t)))
+    .catch(e => alert("Failed: " + e));
+}
+</script>
 </body></html>`;
 }
 
@@ -187,8 +198,27 @@ module.exports = async (req, res) => {
   try {
     const creds = JSON.parse(process.env.GOOGLE_CREDENTIALS);
     const auth = new google.auth.JWT(creds.client_email, null, creds.private_key,
-      ["https://www.googleapis.com/auth/spreadsheets.readonly"]);
+      ["https://www.googleapis.com/auth/spreadsheets"]);
     const sheets = google.sheets({ version: "v4", auth });
+
+    const reqUrl = new URL(req.url, "http://x");
+    const cancelId = reqUrl.searchParams.get("cancel");
+    if (cancelId && req.method === "POST") {
+      const col = await sheets.spreadsheets.values.get({
+        spreadsheetId: MAIN_SHEET_ID, range: `${VIAGOGO_TAB}!D:D`,
+      });
+      const rows = col.data.values || [];
+      let rowNum = -1;
+      for (let i = 1; i < rows.length; i++) {
+        if (String(rows[i][0] || "").trim() === String(cancelId).trim()) { rowNum = i + 1; break; }
+      }
+      if (rowNum === -1) return res.status(404).send("Order not found");
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: MAIN_SHEET_ID, range: `${VIAGOGO_TAB}!I${rowNum}`,
+        valueInputOption: "RAW", requestBody: { values: [["Cancelled"]] },
+      });
+      return res.status(200).send("OK");
+    }
 
     const ranges = [`${LYSTED_TAB}!A:I`, `${VIAGOGO_TAB}!A:I`];
     const [fmt, raw] = await Promise.all([
