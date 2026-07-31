@@ -28,7 +28,7 @@ function sumMoney(values) {
 function tabStats(rows, hasProfit, hasPaid) {
   const data = (rows || []).slice(1).filter((r) => (r[3] || "").toString().trim());
   const recent = data.slice(-8).reverse().map((r) => ({
-    event: r[0] || "", date: r[2] || "", qty: r[6] || "", payout: r[7] || "",
+    event: r[0] || "", date: fmtDate(r[2]), qty: r[6] || "", payout: r[7] || "",
     paid: hasPaid ? (r[8] || "") : null,
   }));
   const out = {
@@ -46,6 +46,27 @@ function tabStats(rows, hasProfit, hasPaid) {
 
 const OVERDUE_DAYS = 10;
 
+function serialToDate(n) {
+  // Google Sheets date serial: days since 30 Dec 1899
+  return new Date(Date.UTC(1899, 11, 30) + n * 86400000);
+}
+
+function fmtDate(v) {
+  if (typeof v === "number") {
+    const d = serialToDate(v);
+    const p = (x) => (x < 10 ? "0" : "") + x;
+    const hm = d.getUTCHours() || d.getUTCMinutes()
+      ? " " + p(d.getUTCHours()) + ":" + p(d.getUTCMinutes()) : "";
+    return p(d.getUTCDate()) + "/" + p(d.getUTCMonth() + 1) + "/" + d.getUTCFullYear() + hm;
+  }
+  return String(v || "");
+}
+
+function cellToDate(v) {
+  if (typeof v === "number") return serialToDate(v);
+  return parseDdMmYyyy(v);
+}
+
 function parseDdMmYyyy(s) {
   const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(String(s || "").trim());
   return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null;
@@ -56,8 +77,8 @@ function collectOverdue(rows) {
   cutoff.setDate(cutoff.getDate() - OVERDUE_DAYS);
   return (rows || []).slice(1)
     .filter((r) => (r[3] || "").toString().trim() && r[8] === "No")
-    .filter((r) => { const d = parseDdMmYyyy(r[2]); return d && d < cutoff; })
-    .map((r) => ({ event: r[0] || "", date: r[2] || "", order: r[3] || "", payout: r[7] || "" }));
+    .filter((r) => { const d = cellToDate(r[2]); return d && d < cutoff; })
+    .map((r) => ({ event: r[0] || "", date: fmtDate(r[2]), order: r[3] || "", payout: r[7] || "" }));
 }
 
 function esc(s) {
@@ -134,6 +155,7 @@ module.exports = async (req, res) => {
     const main = await sheets.spreadsheets.values.batchGet({
       spreadsheetId: MAIN_SHEET_ID,
       ranges: [`${LYSTED_TAB}!A:I`, `${VIAGOGO_TAB}!A:I`],
+      valueRenderOption: "UNFORMATTED_VALUE",
     });
     const lysted = tabStats(main.data.valueRanges[0].values, true);
     const viagogo = tabStats(main.data.valueRanges[1].values, false, true);
