@@ -29,6 +29,7 @@ function tabStats(rows, hasProfit, hasPaid) {
   const data = (rows || []).slice(1).filter((r) => (r[3] || "").toString().trim());
   const recent = data.slice(-8).reverse().map((r) => ({
     event: r[0] || "", date: fmtDate(r[2]), qty: r[6] || "", payout: r[7] || "",
+    profit: hasProfit ? (r[8] || "") : null,
     paid: hasPaid ? (r[8] || "") : null,
   }));
   const out = {
@@ -96,11 +97,14 @@ function card(n, label) {
 
 function table(recent) {
   const hasPaid = recent.some((r) => r.paid !== null && r.paid !== undefined);
+  const hasProfit = recent.some((r) => r.profit !== null && r.profit !== undefined);
   const rows = recent.map((r) =>
     `<tr><td>${esc(r.event)}</td><td>${esc(r.date)}</td><td>${esc(r.qty)}</td><td>${esc(r.payout)}</td>` +
+    (hasProfit ? `<td>${esc(r.profit || "")}</td>` : "") +
     (hasPaid ? `<td>${esc(r.paid || "")}</td>` : "") + `</tr>`
   ).join("");
   return `<table><tr><th>Event</th><th>Date</th><th>Qty</th><th>Payout</th>` +
+    (hasProfit ? `<th>Profit</th>` : "") +
     (hasPaid ? `<th>Paid</th>` : "") + `</tr>${rows}</table>`;
 }
 
