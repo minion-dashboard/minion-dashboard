@@ -85,7 +85,7 @@ tr.flag td{background:rgba(255,80,120,.12)}tr.flag td:first-child{box-shadow:ins
 .btn:hover{background:rgba(255,120,150,.20)}.ok{color:#9be7b4;font-size:12px}
 .foot{color:#8286b4;font-size:12px;margin-top:8px}
 </style></head><body>
-<div class="top"><h1>MINION TICKETS &mdash; ORDERS</h1><div><a class="nav" href="/">Sales</a><a class="nav" href="/pnl">P&amp;L</a></div></div>
+<div class="top"><h1>MINION TICKETS &mdash; ORDERS</h1><div><a class="nav" href="/">Sales</a><a class="nav" href="/pnl">P&amp;L</a><a class="nav" href="/costs">Costs</a></div></div>
 <div class="panel"><div class="cards">
 <div class="card"><div class="n">${orders.length}</div><div class="l">Orders</div></div>
 <div class="card"><div class="n">${esc(totalCost)}</div><div class="l">Total spend</div></div>
