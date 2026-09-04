@@ -83,6 +83,10 @@ background:linear-gradient(90deg,#e6dcff,#a8b8ff);-webkit-background-clip:text;b
 text-shadow:0 0 30px rgba(160,150,255,.35)}
 .badge{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.08);
 color:#cfd2f4;font-size:11px;padding:6px 12px;border-radius:999px;letter-spacing:.12em;text-transform:uppercase}
+.sync{border:1px solid rgba(130,210,255,.45);background:rgba(80,170,255,.13);cursor:pointer}
+.sync:hover{background:rgba(80,170,255,.24)}
+.sync:disabled{cursor:wait;opacity:.65}
+.sync-status{font-size:11px;color:#a7abd6;margin-right:8px}
 .panel{background:rgba(255,255,255,.06);backdrop-filter:blur(22px) saturate(160%);
 -webkit-backdrop-filter:blur(22px) saturate(160%);
 border:1px solid rgba(255,255,255,.14);border-radius:20px;margin-bottom:18px;overflow:hidden;
@@ -111,7 +115,7 @@ box-shadow:0 8px 32px rgba(120,0,40,.25),inset 0 1px 0 rgba(255,255,255,.12)}
 border-radius:10px;padding:6px 12px;font-size:12px;cursor:pointer}
 .btn:hover{background:rgba(255,120,150,.18)}
 </style></head><body>
-<div class="top"><h1>MINION TICKETS</h1><div><a class="badge" href="/orders" style="text-decoration:none">Orders</a> <a class="badge" href="/pnl" style="text-decoration:none">P&amp;L</a> <a class="badge" href="/costs" style="text-decoration:none">Costs</a></div></div>
+<div class="top"><h1>MINION TICKETS</h1><div><span class="sync-status" id="sync-status"></span><button class="badge sync" id="sync-inbox" type="button">Sync inbox</button> <a class="badge" href="/orders" style="text-decoration:none">Orders</a> <a class="badge" href="/pnl" style="text-decoration:none">P&amp;L</a> <a class="badge" href="/costs" style="text-decoration:none">Costs</a></div></div>
 ${overdue && overdue.length ? `<div class="alert"><div class="phead">&#9888; ${overdue.length} overdue payment${overdue.length > 1 ? "s" : ""} - unpaid ${OVERDUE_DAYS}+ days after the event</div><div class="pbody">
 <table><tr><th>Event</th><th>Event date</th><th>Order</th><th>Amount</th><th></th></tr>
 ${overdue.map((o) => `<tr><td>${esc(o.event)}</td><td>${esc(o.date)}</td><td>${esc(o.order)}</td><td>${esc(o.payout)}</td><td><button class="btn cancel-order" data-order="${esc(o.order)}">Mark cancelled</button></td></tr>`).join("")}
@@ -131,6 +135,17 @@ ${table(viagogo.recent)}
 <script>
 document.querySelectorAll(".cancel-order").forEach(function(button){
  button.addEventListener("click", function(){ cancelOrder(button.dataset.order); });
+});
+document.getElementById("sync-inbox").addEventListener("click", function(){
+  var button = this, status = document.getElementById("sync-status");
+  button.disabled = true; status.textContent = "Syncing...";
+  fetch("/api/sync", {method:"POST",headers:{"X-CSRF-Token":"${token}"}})
+    .then(function(r){ return r.ok ? r.json() : r.text().then(function(t){ throw new Error(t); }); })
+    .then(function(result){
+      status.textContent = result.imported + " imported, " + result.review + " to review";
+      setTimeout(function(){ location.reload(); }, 1200);
+    })
+    .catch(function(error){ status.textContent = "Sync failed"; alert("Failed: " + error.message); button.disabled = false; });
 });
 function cancelOrder(id){
   if(!confirm("Mark order " + id + " as cancelled? It will be removed from the overdue list and payment tracking.")) return;

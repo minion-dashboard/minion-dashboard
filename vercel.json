@@ -1,8 +1,12 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
     { "source": "/", "destination": "/api/dashboard" },
     { "source": "/orders", "destination": "/api/orders" },
     { "source": "/pnl", "destination": "/api/pnl" },
     { "source": "/costs", "destination": "/api/costs" }
+  ],
+  "crons": [
+    { "path": "/api/sync", "schedule": "15 4 * * *" }
   ]
 }
