@@ -1,35 +1,12 @@
-const { google } = require("googleapis");
+const { authenticate, csrfToken, requireMutation } = require("../lib/security");
+const { client, sheetId } = require("../lib/sheets");
+const { esc, fmtDate, money, pairedRows, parseMoney, sumByCur, toDate } = require("../lib/utils");
 
-const MAIN_SHEET_ID = "1HCAL0ei_RrxpIdoPC_IY_qzhPTsukwaTGBnIf8lZJQo";
 const COSTS_TAB = "Costs";
 const RENEWAL_SOON_DAYS = 7;
 
 const COLUMNS = ["Item","Category","Provider","Amount","Cycle","Start date","Status","Notes"];
 const CYCLES  = ["Monthly","Annual","Quarterly","Weekly","One-off"];
-
-function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
-function pad(x){return (x<10?"0":"")+x;}
-function serialToDate(n){return new Date(Date.UTC(1899,11,30)+n*86400000);}
-function toDate(v){
-  if (typeof v === "number") return serialToDate(v);
-  const m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(String(v||"").trim());
-  return m?new Date(Date.UTC(+m[3],+m[2]-1,+m[1])):null;
-}
-function fmtDate(v){const d=toDate(v);return d?pad(d.getUTCDate())+"/"+pad(d.getUTCMonth()+1)+"/"+d.getUTCFullYear():String(v||"");}
-function parseMoney(v){
-  const s=String(v==null?"":v).trim();
-  if(!s) return null;
-  if(typeof v==="number") return {cur:"£",amt:v};
-  const cur=(s.match(/[£$€]/)||["£"])[0];
-  const n=parseFloat(s.replace(/[^0-9.]/g,""));
-  return isNaN(n)?null:{cur,amt:n};
-}
-function money(cur,amt){return cur+amt.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,",");}
-function sumByCur(list){
-  const t={}; list.forEach(m=>{if(m)t[m.cur]=(t[m.cur]||0)+m.amt;});
-  const k=Object.keys(t);
-  return k.length?k.map(c=>money(c,t[c])).join("  "):"-";
-}
 
 // Convert any billing cycle to a monthly-equivalent figure
 function monthlyEquivalent(m, cycle){
@@ -45,19 +22,26 @@ function monthlyEquivalent(m, cycle){
 }
 
 // Next renewal date: roll the start date forward by the cycle until it's in the future
-function nextRenewal(start, cycle){
+function addMonthsClamped(anchor, months) {
+  const year = anchor.getUTCFullYear();
+  const month = anchor.getUTCMonth() + months;
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(year, month, Math.min(anchor.getUTCDate(), lastDay)));
+}
+
+function nextRenewal(start, cycle, now = new Date()){
   const d = toDate(start);
   if(!d) return null;
   const c = String(cycle||"").toLowerCase();
   if(c==="one-off"||c==="") return null;
   const step = { monthly:{m:1}, yearly:{m:12}, annual:{m:12}, quarterly:{m:3}, weekly:{d:7} }[c];
   if(!step) return null;
-  const now = new Date();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   let cur = new Date(d.getTime());
   let guard = 0;
-  while (cur < now && guard++ < 600) {
+  while (cur < today && guard++ < 600) {
     if (step.d) cur = new Date(cur.getTime() + step.d*86400000);
-    else cur = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth()+step.m, cur.getUTCDate()));
+    else cur = addMonthsClamped(d, step.m * guard);
   }
   return cur;
 }
@@ -84,7 +68,7 @@ function render(items){
         return `<tr class="${soon?'warn':''}"><td>${esc(i.item)}</td><td>${esc(i.provider)}</td>
           <td>${esc(i.amountStr)}</td><td>${esc(i.cycle)}</td>
           <td>${esc(i.monthlyStr)}</td>
-          <td class="${soon?'neg':''}">${i.renewalStr}${i.daysUntil!==null?` <span class="dim">(${i.daysUntil}d)</span>`:""}</td></tr>`;
+          <td class="${soon?'neg':''}">${esc(i.renewalStr)}${i.daysUntil!==null?` <span class="dim">(${i.daysUntil}d)</span>`:""}</td></tr>`;
       }).join("");
   }).join("");
 
@@ -162,7 +146,7 @@ function addCost(e){
   e.preventDefault();
   var f=e.target, d={};
   ["item","category","provider","amount","cycle","start","notes"].forEach(function(k){ d[k]=f[k].value; });
-  fetch("?add=1",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)})
+  fetch("?add=1",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":"${csrfToken()}"},body:JSON.stringify(d)})
     .then(function(r){ return r.ok?location.reload():r.text().then(function(t){alert("Failed: "+t);}); })
     .catch(function(err){ alert("Failed: "+err); });
   return false;
@@ -172,52 +156,58 @@ function addCost(e){
 }
 
 module.exports = async (req,res) => {
-  if (process.env.PASSWORD) {
-    const auth=req.headers.authorization||"";
-    const ok=auth.startsWith("Basic ") &&
-      Buffer.from(auth.slice(6),"base64").toString().split(":").pop()===process.env.PASSWORD;
-    if(!ok){res.setHeader("WWW-Authenticate",'Basic realm="Minion Tickets"');return res.status(401).send("Password required");}
-  }
+  if (!authenticate(req, res)) return;
   try{
-    const creds=JSON.parse(process.env.GOOGLE_CREDENTIALS);
-    const jwt=new google.auth.JWT(creds.client_email,null,creds.private_key,
-      ["https://www.googleapis.com/auth/spreadsheets"]);
-    const sheets=google.sheets({version:"v4",auth:jwt});
+    const sheets=client("https://www.googleapis.com/auth/spreadsheets");
+    const spreadsheetId=sheetId();
 
     // make sure the Costs tab exists
-    const meta=await sheets.spreadsheets.get({spreadsheetId:MAIN_SHEET_ID});
+    const meta=await sheets.spreadsheets.get({spreadsheetId});
     if(!meta.data.sheets.some(s=>s.properties.title===COSTS_TAB)){
-      await sheets.spreadsheets.batchUpdate({spreadsheetId:MAIN_SHEET_ID,
+      await sheets.spreadsheets.batchUpdate({spreadsheetId,
         requestBody:{requests:[{addSheet:{properties:{title:COSTS_TAB}}}]}});
-      await sheets.spreadsheets.values.update({spreadsheetId:MAIN_SHEET_ID,
+      await sheets.spreadsheets.values.update({spreadsheetId,
         range:`${COSTS_TAB}!A1:H1`,valueInputOption:"RAW",requestBody:{values:[COLUMNS]}});
     }
 
     if(req.method==="POST" && new URL(req.url,"http://x").searchParams.get("add")){
+      if (!requireMutation(req, res)) return;
       let body=req.body;
-      if(typeof body==="string") body=JSON.parse(body||"{}");
-      if(!body||!body.item) return res.status(400).send("Missing item");
-      const row=[body.item||"",body.category||"",body.provider||"",body.amount||"",
-                 body.cycle||"Monthly",body.start||"","Active",body.notes||""];
-      await sheets.spreadsheets.values.append({spreadsheetId:MAIN_SHEET_ID,range:`${COSTS_TAB}!A:H`,
+      if(typeof body==="string") {
+        if(body.length>10000) return res.status(413).send("Request is too large");
+        body=JSON.parse(body||"{}");
+      }
+      const item=String(body&&body.item||"").trim();
+      const category=String(body&&body.category||"").trim();
+      const provider=String(body&&body.provider||"").trim();
+      const cycle=String(body&&body.cycle||"Monthly").trim();
+      const start=String(body&&body.start||"").trim();
+      const notes=String(body&&body.notes||"").trim();
+      const amount=parseMoney(body&&body.amount);
+      if(!item||item.length>200) return res.status(400).send("Enter a valid item name");
+      if(category.length>100||provider.length>100||notes.length>1000) return res.status(400).send("One or more fields are too long");
+      if(!CYCLES.includes(cycle)) return res.status(400).send("Invalid billing cycle");
+      if(!amount||amount.amt<=0||amount.amt>1000000000) return res.status(400).send("Enter a valid positive amount");
+      if(start&&!toDate(start)) return res.status(400).send("Start date must be dd/mm/yyyy");
+      const row=[item,category,provider,money(amount.cur,amount.amt),cycle,start,"Active",notes];
+      await sheets.spreadsheets.values.append({spreadsheetId,range:`${COSTS_TAB}!A:H`,
         valueInputOption:"RAW",insertDataOption:"INSERT_ROWS",requestBody:{values:[row]}});
       return res.status(200).send("OK");
     }
 
     const [fmt,raw]=await Promise.all([
-      sheets.spreadsheets.values.get({spreadsheetId:MAIN_SHEET_ID,range:`${COSTS_TAB}!A:H`}),
-      sheets.spreadsheets.values.get({spreadsheetId:MAIN_SHEET_ID,range:`${COSTS_TAB}!A:H`,valueRenderOption:"UNFORMATTED_VALUE"}),
+      sheets.spreadsheets.values.get({spreadsheetId,range:`${COSTS_TAB}!A:H`}),
+      sheets.spreadsheets.values.get({spreadsheetId,range:`${COSTS_TAB}!A:H`,valueRenderOption:"UNFORMATTED_VALUE"}),
     ]);
     const F=(fmt.data.values||[]).slice(1), R=(raw.data.values||[]).slice(1);
-    const items=F.filter(r=>(r[0]||"").toString().trim()).map((r,i)=>{
-      const rr=R[i]||r;
+    const items=pairedRows(F,R).filter(({row})=>(row[0]||"").toString().trim()).map(({row:r,raw:rr})=>{
       const amount=parseMoney(r[3]);
       const m=monthlyEquivalent(amount,r[4]);
       const nr=nextRenewal(rr[5],r[4]);
       return { item:r[0]||"", category:r[1]||"", provider:r[2]||"",
         amount, amountStr: amount?money(amount.cur,amount.amt):"-",
         cycle:r[4]||"", monthly:m, monthlyStr:m?money(m.cur,m.amt):"-",
-        renewalStr: nr?fmtDate(Math.floor((nr-Date.UTC(1899,11,30))/86400000)):"-",
+        renewalStr: nr?fmtDate(nr):"-",
         daysUntil: daysUntil(nr), status:r[6]||"Active", notes:r[7]||"" };
     });
 
@@ -225,7 +215,9 @@ module.exports = async (req,res) => {
     res.setHeader("Cache-Control","no-store");
     return res.status(200).send(render(items));
   }catch(e){
-    return res.status(500).send("Costs page error: "+esc(e.message)+
-      "<br><br>The sheet must be shared with the service account as Editor.");
+    console.error("Costs page error", e);
+    return res.status(500).send("Cost data could not be loaded.");
   }
 };
+
+module.exports._test = { addMonthsClamped, monthlyEquivalent, nextRenewal };

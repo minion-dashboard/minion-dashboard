@@ -1,32 +1,15 @@
-const { google } = require("googleapis");
+const { authenticate, csrfToken, requireMutation } = require("../lib/security");
+const { client, sheetId } = require("../lib/sheets");
+const { esc, fmtDate, parseMoney, sumByCur, toDate } = require("../lib/utils");
 
-// Main spreadsheet (miniontickets)
-const MAIN_SHEET_ID = "1HCAL0ei_RrxpIdoPC_IY_qzhPTsukwaTGBnIf8lZJQo";
 const LYSTED_TAB = "Sheet1";
 const VIAGOGO_TAB = "Viagogo";
-// Optional extras via Vercel environment variables:
-//   HISTORY_SHEET_ID - the Viagogo Sales History sheet's ID
-//   PASSWORD         - if set, the dashboard asks for it (username: any)
 
-function sumMoney(values) {
-  const t = {};
-  for (let v of values) {
-    v = String(v || "").trim();
-    if (!v) continue;
-    const neg = v.includes("-");
-    const cur = (v.match(/[£$€]/) || ["$"])[0];
-    const n = parseFloat(v.replace(/[^0-9.]/g, ""));
-    if (isNaN(n)) continue;
-    t[cur] = (t[cur] || 0) + (neg ? -n : n);
-  }
-  const parts = Object.keys(t).map(
-    (c) => c + t[c].toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")
-  );
-  return parts.join("  ") || "-";
-}
+function sumMoney(values) { return sumByCur(values.map(value => parseMoney(value, "$"))); }
 
 function tabStats(rows, hasProfit, hasPaid) {
-  const data = (rows || []).slice(1).filter((r) => (r[3] || "").toString().trim());
+  const data = (rows || []).slice(1).filter((r) =>
+    (r[3] || "").toString().trim() && (!hasPaid || String(r[8] || "").trim() !== "Cancelled"));
   const recent = data.slice(-8).reverse().map((r) => ({
     event: r[0] || "", date: fmtDate(r[2]), qty: r[6] || "", payout: r[7] || "",
     profit: hasProfit ? (r[8] || "") : null,
@@ -47,48 +30,18 @@ function tabStats(rows, hasProfit, hasPaid) {
 
 const OVERDUE_DAYS = 10;
 
-function serialToDate(n) {
-  // Google Sheets date serial: days since 30 Dec 1899
-  return new Date(Date.UTC(1899, 11, 30) + n * 86400000);
-}
-
-function fmtDate(v) {
-  if (typeof v === "number") {
-    const d = serialToDate(v);
-    const p = (x) => (x < 10 ? "0" : "") + x;
-    const hm = d.getUTCHours() || d.getUTCMinutes()
-      ? " " + p(d.getUTCHours()) + ":" + p(d.getUTCMinutes()) : "";
-    return p(d.getUTCDate()) + "/" + p(d.getUTCMonth() + 1) + "/" + d.getUTCFullYear() + hm;
-  }
-  return String(v || "");
-}
-
-function cellToDate(v) {
-  if (typeof v === "number") return serialToDate(v);
-  return parseDdMmYyyy(v);
-}
-
-function parseDdMmYyyy(s) {
-  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(String(s || "").trim());
-  return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null;
-}
-
 function collectOverdue(rawRows, fmtRows) {
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - OVERDUE_DAYS);
+  const now = new Date();
+  const cutoff = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - OVERDUE_DAYS));
   const out = [];
   (rawRows || []).slice(1).forEach((r, i) => {
     if (!(r[3] || "").toString().trim() || r[8] !== "No") return;
-    const d = cellToDate(r[2]);
+    const d = toDate(r[2]);
     if (!d || d >= cutoff) return;
     const f = (fmtRows || [])[i + 1] || r;  // formatted twin row for display
     out.push({ event: f[0] || "", date: fmtDate(f[2]), order: String(f[3] || ""), payout: f[7] || "" });
   });
   return out;
-}
-
-function esc(s) {
-  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function card(n, label) {
@@ -108,7 +61,7 @@ function table(recent) {
     (hasPaid ? `<th>Paid</th>` : "") + `</tr>${rows}</table>`;
 }
 
-function render(lysted, viagogo, overdue) {
+function render(lysted, viagogo, overdue, token) {
   return `<!doctype html><html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Minion Tickets</title><style>
@@ -161,7 +114,7 @@ border-radius:10px;padding:6px 12px;font-size:12px;cursor:pointer}
 <div class="top"><h1>MINION TICKETS</h1><div><a class="badge" href="/orders" style="text-decoration:none">Orders</a> <a class="badge" href="/pnl" style="text-decoration:none">P&amp;L</a> <a class="badge" href="/costs" style="text-decoration:none">Costs</a></div></div>
 ${overdue && overdue.length ? `<div class="alert"><div class="phead">&#9888; ${overdue.length} overdue payment${overdue.length > 1 ? "s" : ""} - unpaid ${OVERDUE_DAYS}+ days after the event</div><div class="pbody">
 <table><tr><th>Event</th><th>Event date</th><th>Order</th><th>Amount</th><th></th></tr>
-${overdue.map((o) => `<tr><td>${esc(o.event)}</td><td>${esc(o.date)}</td><td>${esc(o.order)}</td><td>${esc(o.payout)}</td><td><button class="btn" onclick="cancelOrder('${esc(o.order)}')">Mark cancelled</button></td></tr>`).join("")}
+${overdue.map((o) => `<tr><td>${esc(o.event)}</td><td>${esc(o.date)}</td><td>${esc(o.order)}</td><td>${esc(o.payout)}</td><td><button class="btn cancel-order" data-order="${esc(o.order)}">Mark cancelled</button></td></tr>`).join("")}
 </table></div></div>` : ""}
 <div class="panel"><div class="phead">Lysted</div><div class="pbody">
 <div class="cards">${card(lysted.count, "Sales")}${card(lysted.payout, "Total payout")}${card(lysted.profit, "Total profit")}</div>
@@ -176,9 +129,12 @@ ${table(viagogo.recent)}
 </div></div>
 <div class="foot">Data live from your sheets &middot; refresh any time.</div>
 <script>
+document.querySelectorAll(".cancel-order").forEach(function(button){
+ button.addEventListener("click", function(){ cancelOrder(button.dataset.order); });
+});
 function cancelOrder(id){
   if(!confirm("Mark order " + id + " as cancelled? It will be removed from the overdue list and payment tracking.")) return;
-  fetch("?cancel=" + encodeURIComponent(id), {method:"POST"})
+  fetch("?cancel=" + encodeURIComponent(id), {method:"POST",headers:{"X-CSRF-Token":"${token}"}})
     .then(r => r.ok ? location.reload() : r.text().then(t => alert("Failed: " + t)))
     .catch(e => alert("Failed: " + e));
 }
@@ -187,29 +143,19 @@ function cancelOrder(id){
 }
 
 module.exports = async (req, res) => {
-  // Optional password gate (HTTP Basic auth)
-  if (process.env.PASSWORD) {
-    const auth = req.headers.authorization || "";
-    const expected = Buffer.from(":" + process.env.PASSWORD).toString("base64");
-    const ok = auth.startsWith("Basic ") &&
-      Buffer.from(auth.slice(6), "base64").toString().split(":").pop() === process.env.PASSWORD;
-    if (!ok) {
-      res.setHeader("WWW-Authenticate", 'Basic realm="Minion Tickets"');
-      return res.status(401).send("Password required");
-    }
-  }
+  if (!authenticate(req, res)) return;
 
   try {
-    const creds = JSON.parse(process.env.GOOGLE_CREDENTIALS);
-    const auth = new google.auth.JWT(creds.client_email, null, creds.private_key,
-      ["https://www.googleapis.com/auth/spreadsheets"]);
-    const sheets = google.sheets({ version: "v4", auth });
+    const sheets = client("https://www.googleapis.com/auth/spreadsheets");
+    const spreadsheetId = sheetId();
 
     const reqUrl = new URL(req.url, "http://x");
     const cancelId = reqUrl.searchParams.get("cancel");
     if (cancelId && req.method === "POST") {
+      if (!requireMutation(req, res)) return;
+      if (cancelId.length > 200) return res.status(400).send("Invalid order ID");
       const col = await sheets.spreadsheets.values.get({
-        spreadsheetId: MAIN_SHEET_ID, range: `${VIAGOGO_TAB}!D:D`,
+        spreadsheetId, range: `${VIAGOGO_TAB}!D:D`,
       });
       const rows = col.data.values || [];
       let rowNum = -1;
@@ -218,7 +164,7 @@ module.exports = async (req, res) => {
       }
       if (rowNum === -1) return res.status(404).send("Order not found");
       await sheets.spreadsheets.values.update({
-        spreadsheetId: MAIN_SHEET_ID, range: `${VIAGOGO_TAB}!I${rowNum}`,
+        spreadsheetId, range: `${VIAGOGO_TAB}!I${rowNum}`,
         valueInputOption: "RAW", requestBody: { values: [["Cancelled"]] },
       });
       return res.status(200).send("OK");
@@ -226,9 +172,9 @@ module.exports = async (req, res) => {
 
     const ranges = [`${LYSTED_TAB}!A:I`, `${VIAGOGO_TAB}!A:I`];
     const [fmt, raw] = await Promise.all([
-      sheets.spreadsheets.values.batchGet({ spreadsheetId: MAIN_SHEET_ID, ranges }),
+      sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges }),
       sheets.spreadsheets.values.batchGet({
-        spreadsheetId: MAIN_SHEET_ID, ranges, valueRenderOption: "UNFORMATTED_VALUE",
+        spreadsheetId, ranges, valueRenderOption: "UNFORMATTED_VALUE",
       }),
     ]);
     const lysted = tabStats(fmt.data.valueRanges[0].values, true);
@@ -238,11 +184,9 @@ module.exports = async (req, res) => {
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", "no-store");
-    return res.status(200).send(render(lysted, viagogo, overdue));
+    return res.status(200).send(render(lysted, viagogo, overdue, csrfToken()));
   } catch (e) {
-    return res.status(500).send(
-      "Dashboard error: " + esc(e.message) +
-      "<br><br>Check the GOOGLE_CREDENTIALS environment variable and that both sheets are shared with the service account email."
-    );
+    console.error("Dashboard error", e);
+    return res.status(500).send("Dashboard data could not be loaded.");
   }
 };

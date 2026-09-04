@@ -1,63 +1,50 @@
-const { google } = require("googleapis");
-const MAIN_SHEET_ID = "1HCAL0ei_RrxpIdoPC_IY_qzhPTsukwaTGBnIf8lZJQo";
+const { authenticate, csrfToken, requireMutation } = require("../lib/security");
+const { client, sheetId } = require("../lib/sheets");
+const { esc, fmtDate, pairedRows, parseMoney, positiveInteger, sumByCur } = require("../lib/utils");
 const ORDERS_TAB = "Orders";
 
-function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
-
-function fmtDate(v){
-  if(typeof v==="number"){const d=new Date(Date.UTC(1899,11,30)+v*86400000);const p=x=>(x<10?"0":"")+x;
-    const hm=d.getUTCHours()||d.getUTCMinutes()?" "+p(d.getUTCHours())+":"+p(d.getUTCMinutes()):"";
-    return p(d.getUTCDate())+"/"+p(d.getUTCMonth()+1)+"/"+d.getUTCFullYear()+hm;}
-  return String(v||"");
-}
-
 module.exports = async (req, res) => {
-  if (process.env.PASSWORD) {
-    const auth = req.headers.authorization || "";
-    const ok = auth.startsWith("Basic ") &&
-      Buffer.from(auth.slice(6),"base64").toString().split(":").pop() === process.env.PASSWORD;
-    if(!ok){res.setHeader("WWW-Authenticate",'Basic realm="Minion Tickets"');return res.status(401).send("Password required");}
-  }
+  if (!authenticate(req, res)) return;
   try {
-    const creds = JSON.parse(process.env.GOOGLE_CREDENTIALS);
-    const jwt = new google.auth.JWT(creds.client_email,null,creds.private_key,
-      ["https://www.googleapis.com/auth/spreadsheets"]);
-    const sheets = google.sheets({version:"v4",auth:jwt});
+    const sheets = client("https://www.googleapis.com/auth/spreadsheets");
+    const spreadsheetId = sheetId();
 
     const reqUrl = new URL(req.url,"http://x");
     const confirmId = reqUrl.searchParams.get("confirm");
     const setQty = reqUrl.searchParams.get("qty");
     if (confirmId && req.method === "POST") {
-      const col = await sheets.spreadsheets.values.get({spreadsheetId:MAIN_SHEET_ID,range:`${ORDERS_TAB}!I:I`});
+      if (!requireMutation(req, res)) return;
+      if (confirmId.length > 200) return res.status(400).send("Invalid order ID");
+      const quantity = setQty ? positiveInteger(setQty) : null;
+      if (setQty && quantity === null) return res.status(400).send("Quantity must be a positive whole number");
+      const col = await sheets.spreadsheets.values.get({spreadsheetId,range:`${ORDERS_TAB}!I:I`});
       const rows = col.data.values||[];
       let n=-1; for(let i=1;i<rows.length;i++){if(String(rows[i][0]||"").trim()===String(confirmId).trim()){n=i+1;break;}}
       if(n===-1) return res.status(404).send("Order not found");
       const upd=[{range:`${ORDERS_TAB}!K${n}`,values:[["Confirmed"]]}];
-      if(setQty) upd.push({range:`${ORDERS_TAB}!G${n}`,values:[[setQty]]});
-      await sheets.spreadsheets.values.batchUpdate({spreadsheetId:MAIN_SHEET_ID,
+      if(quantity !== null) upd.push({range:`${ORDERS_TAB}!G${n}`,values:[[quantity]]});
+      await sheets.spreadsheets.values.batchUpdate({spreadsheetId,
         requestBody:{valueInputOption:"RAW",data:upd}});
       return res.status(200).send("OK");
     }
 
     const [fmt,raw] = await Promise.all([
-      sheets.spreadsheets.values.get({spreadsheetId:MAIN_SHEET_ID,range:`${ORDERS_TAB}!A:K`}),
-      sheets.spreadsheets.values.get({spreadsheetId:MAIN_SHEET_ID,range:`${ORDERS_TAB}!A:K`,valueRenderOption:"UNFORMATTED_VALUE"}),
+      sheets.spreadsheets.values.get({spreadsheetId,range:`${ORDERS_TAB}!A:K`}),
+      sheets.spreadsheets.values.get({spreadsheetId,range:`${ORDERS_TAB}!A:K`,valueRenderOption:"UNFORMATTED_VALUE"}),
     ]);
     const F=(fmt.data.values||[]).slice(1), R=(raw.data.values||[]).slice(1);
-    const orders = F.filter(r=>(r[8]||"").toString().trim()).map((r,i)=>({
-      event:r[0]||"",date:fmtDate((R[i]||r)[1]),venue:r[2]||"",section:r[3]||"",row:r[4]||"",
+    const orders = pairedRows(F,R).filter(({row})=>(row[8]||"").toString().trim()).map(({row:r,raw:rr})=>({
+      event:r[0]||"",date:fmtDate(rr[1]),venue:r[2]||"",section:r[3]||"",row:r[4]||"",
       seats:r[5]||"",qty:r[6]||"",cost:r[7]||"",order:r[8]||"",account:r[9]||"",status:r[10]||""}));
     const flagged = orders.filter(o=>o.status==="Check");
-    const totalCost = (()=>{const t={};orders.forEach(o=>{const v=String(o.cost||"");if(!v)return;
-      const c=(v.match(/[£$€]/)||["£"])[0];const n=parseFloat(v.replace(/[^0-9.]/g,""));if(!isNaN(n))t[c]=(t[c]||0)+n;});
-      return Object.keys(t).map(c=>c+t[c].toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,",")).join("  ")||"-";})();
+    const totalCost = sumByCur(orders.map(order => parseMoney(order.cost)).filter(Boolean));
 
     const rowsHtml = orders.map(o=>{
       const flag=o.status==="Check";
       return `<tr class="${flag?'flag':''}"><td>${esc(o.event)}</td><td>${esc(o.date)}</td><td>${esc(o.venue)}</td>`+
         `<td>${esc(o.section)}${o.row?" / "+esc(o.row):""}${o.seats?" / "+esc(o.seats):""}</td>`+
         `<td>${esc(o.qty)}</td><td>${esc(o.cost)}</td><td>${esc(o.account)}</td>`+
-        `<td>${flag?`<button class="btn" onclick="confirmOrder('${esc(o.order)}')">Confirm</button>`
+        `<td>${flag?`<button class="btn confirm-order" data-order="${esc(o.order)}">Confirm</button>`
               :(o.status==="Confirmed"?'<span class="ok">Confirmed</span>':'')}</td></tr>`;
     }).join("");
 
@@ -98,11 +85,14 @@ ${rowsHtml||'<tr><td colspan="8" style="padding:18px;color:#8286b4">No orders ye
 </table></div></div>
 <div class="foot">Purchases from forwarded Ticketmaster confirmations &middot; refresh any time.</div>
 <script>
+document.querySelectorAll(".confirm-order").forEach(function(button){
+  button.addEventListener("click", function(){ confirmOrder(button.dataset.order); });
+});
 function confirmOrder(id){
   var q=prompt("Confirm order "+id+".\\nEnter the correct ticket quantity (leave blank to keep as is):");
   if(q===null) return;
   var url="?confirm="+encodeURIComponent(id)+(q.trim()?"&qty="+encodeURIComponent(q.trim()):"");
-  fetch(url,{method:"POST"}).then(function(r){return r.ok?location.reload():r.text().then(function(t){alert("Failed: "+t);});}).catch(function(e){alert("Failed: "+e);});
+  fetch(url,{method:"POST",headers:{"X-CSRF-Token":"${csrfToken()}"}}).then(function(r){return r.ok?location.reload():r.text().then(function(t){alert("Failed: "+t);});}).catch(function(e){alert("Failed: "+e);});
 }
 </script>
 </body></html>`;
@@ -110,7 +100,7 @@ function confirmOrder(id){
     res.setHeader("Cache-Control","no-store");
     return res.status(200).send(html);
   } catch(e){
-    return res.status(500).send("Orders page error: "+esc(e.message)+
-      "<br><br>Check the Orders tab exists and the sheet is shared with the service account as Editor.");
+    console.error("Orders page error", e);
+    return res.status(500).send("Order data could not be loaded.");
   }
 };
