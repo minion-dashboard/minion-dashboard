@@ -52,3 +52,21 @@ test("older purchases affect event profit without appearing in the report", () =
   assert.equal(september.key, "2026-09");
   assert.equal(september.profitText, "£50.00");
 });
+
+test("complete entered sale profits override the calculated event profit", () => {
+  const order = { purchaseDate: "2026-09-02T10:00:00Z", qty: "2", cost: { cur: "£", amt: 200 } };
+  const [september] = buildMonthly([order], [{
+    orders: [order], sales: [{ profit: { cur: "£", amt: 80 } }, { profit: { cur: "£", amt: -10 } }],
+    issue: "", profitVal: 100, profitCur: "£"
+  }]);
+  assert.equal(september.profitText, "£70.00");
+});
+
+test("missing entered profit falls back to the safe calculation", () => {
+  const order = { purchaseDate: "2026-09-02T10:00:00Z", qty: "2", cost: { cur: "£", amt: 200 } };
+  const [september] = buildMonthly([order], [{
+    orders: [order], sales: [{ profit: { cur: "£", amt: 80 } }, { profit: null }],
+    issue: "", profitVal: 100, profitCur: "£"
+  }]);
+  assert.equal(september.profitText, "£100.00");
+});

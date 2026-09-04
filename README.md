@@ -7,6 +7,7 @@ profit and inventory estimates, and running costs.
 
 - `/` — Lysted and Viagogo sales plus overdue Viagogo payments
 - `/orders` — imported purchase orders and confirmation checks
+- `/viagogo` — all Viagogo sales with editable manual profit
 - `/monthly` — orders, tickets, spend, and realised profit by purchase month
 - `/pnl` — purchase/sale matching, realised profit, and unsold inventory
 - `/costs` — recurring and one-off business costs
@@ -16,7 +17,7 @@ profit and inventory estimates, and running costs.
 | Tab | Columns used |
 | --- | --- |
 | `Sheet1` | A Event, C Date, D Order ID, G Quantity, H Payout, I Profit |
-| `Viagogo` | A Event, C Date, D Order ID, G Quantity, H Payout, I Paid status |
+| `Viagogo` | A Event, C Date, D Order ID, G Quantity, H Payout, I Paid status, J Manual profit |
 | `Orders` | A Event, B Event date, C Venue, D Section, E Row, F Seats, G Quantity, H Cost, I Order ID, J Account, K Status, L Purchase date |
 | `Costs` | A Item, B Category, C Provider, D Amount, E Cycle, F Start date, G Status, H Notes |
 
@@ -61,6 +62,12 @@ New Ticketmaster imports store their Fastmail received timestamp as the purchase
 date in column L of `Orders`. The monthly page can also recover this date from
 `ImportLog`. Monthly reporting starts on 1 September 2026; older and undated
 orders are excluded rather than assigned to a guessed month.
+
+Viagogo emails do not contain profit. Use **Manage profits** from the Viagogo
+panel to enter or edit it. Entered values are stored in column J and feed the
+Viagogo dashboard total. The monthly report uses entered marketplace profit
+when every sale for a matched event has a value; otherwise it retains the
+purchase-cost calculation so an unfilled value is never treated as zero.
 
 ### Moving from the old Google Apps Scripts
 

@@ -45,7 +45,7 @@ module.exports = async (req, res) => {
   try {
     const sheets = client();
     const spreadsheetId = sheetId();
-    const ranges = ["Orders!A:L", "Sheet1!A:I", "Viagogo!A:I"];
+    const ranges = ["Orders!A:L", "Sheet1!A:I", "Viagogo!A:J"];
     const [fmt, raw, logResult] = await Promise.all([
       sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges }),
       sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges, valueRenderOption: "UNFORMATTED_VALUE" }),
@@ -65,13 +65,13 @@ module.exports = async (req, res) => {
       dayKey: dayKey(rawRow[1]), tokens: tokens(row[0])
     }));
     const orders = allOrders.filter(order => isTrackedPurchase(order.purchaseDate));
-    const salesFor = index => pairedRows(F(index), R(index))
+    const salesFor = (index, profitColumn) => pairedRows(F(index), R(index))
       .filter(({ row }) => String(row[3] || "").trim() && String(row[8] || "").trim() !== "Cancelled")
       .map(({ row, raw: rawRow }) => ({
-        event: row[0] || "", date: rawRow[2], qty: row[6], payout: parseMoney(row[7]),
+        event: row[0] || "", date: rawRow[2], qty: row[6], payout: parseMoney(row[7]), profit: parseMoney(row[profitColumn]),
         dayKey: dayKey(rawRow[2]), tokens: tokens(row[0])
       }));
-    const summaries = summarise(buildGroups(allOrders, salesFor(1).concat(salesFor(2))));
+    const summaries = summarise(buildGroups(allOrders, salesFor(1, 8).concat(salesFor(2, 9))));
     const months = buildMonthly(orders, summaries);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", "no-store");

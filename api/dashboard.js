@@ -7,23 +7,23 @@ const VIAGOGO_TAB = "Viagogo";
 
 function sumMoney(values) { return sumByCur(values.map(value => parseMoney(value, "$"))); }
 
-function tabStats(rows, hasProfit, hasPaid) {
+function tabStats(rows, { profitColumn = null, paidColumn = null } = {}) {
   const data = (rows || []).slice(1).filter((r) =>
-    (r[3] || "").toString().trim() && (!hasPaid || String(r[8] || "").trim() !== "Cancelled"));
+    (r[3] || "").toString().trim() && (paidColumn === null || String(r[paidColumn] || "").trim() !== "Cancelled"));
   const recent = data.slice(-8).reverse().map((r) => ({
     event: r[0] || "", date: fmtDate(r[2]), qty: r[6] || "", payout: r[7] || "",
-    profit: hasProfit ? (r[8] || "") : null,
-    paid: hasPaid ? (r[8] || "") : null,
+    profit: profitColumn === null ? null : (r[profitColumn] || ""),
+    paid: paidColumn === null ? null : (r[paidColumn] || ""),
   }));
   const out = {
     count: data.length,
     payout: sumMoney(data.map((r) => r[7])),
-    profit: hasProfit ? sumMoney(data.map((r) => r[8])) : null,
+    profit: profitColumn === null ? null : sumMoney(data.map((r) => r[profitColumn])),
     recent,
   };
-  if (hasPaid) {
-    out.paid = data.filter((r) => r[8] === "Yes").length;
-    out.unpaid = data.filter((r) => r[8] === "No").length;
+  if (paidColumn !== null) {
+    out.paid = data.filter((r) => r[paidColumn] === "Yes").length;
+    out.unpaid = data.filter((r) => r[paidColumn] === "No").length;
   }
   return out;
 }
@@ -126,8 +126,8 @@ ${overdue.map((o) => `<tr><td>${esc(o.event)}</td><td>${esc(o.date)}</td><td>${e
 <div style="height:16px"></div>
 ${table(lysted.recent)}
 </div></div>
-<div class="panel"><div class="phead">Viagogo (all time)</div><div class="pbody">
-<div class="cards">${card(viagogo.count, "Sales")}${card(viagogo.payout, "Total payout")}${viagogo.paid !== undefined ? card(viagogo.paid, "Paid") + card(viagogo.unpaid, "Not yet paid") : ""}</div>
+<div class="panel"><div class="phead">Viagogo (all time) <a href="/viagogo" style="float:right;color:#b9c8ff;text-decoration:none">Manage profits &rarr;</a></div><div class="pbody">
+<div class="cards">${card(viagogo.count, "Sales")}${card(viagogo.payout, "Total payout")}${card(viagogo.profit, "Entered profit")}${viagogo.paid !== undefined ? card(viagogo.paid, "Paid") + card(viagogo.unpaid, "Not yet paid") : ""}</div>
 <div style="height:16px"></div>
 ${table(viagogo.recent)}
 </div></div>
@@ -185,15 +185,15 @@ module.exports = async (req, res) => {
       return res.status(200).send("OK");
     }
 
-    const ranges = [`${LYSTED_TAB}!A:I`, `${VIAGOGO_TAB}!A:I`];
+    const ranges = [`${LYSTED_TAB}!A:I`, `${VIAGOGO_TAB}!A:J`];
     const [fmt, raw] = await Promise.all([
       sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges }),
       sheets.spreadsheets.values.batchGet({
         spreadsheetId, ranges, valueRenderOption: "UNFORMATTED_VALUE",
       }),
     ]);
-    const lysted = tabStats(fmt.data.valueRanges[0].values, true);
-    const viagogo = tabStats(fmt.data.valueRanges[1].values, false, true);
+    const lysted = tabStats(fmt.data.valueRanges[0].values, { profitColumn: 8 });
+    const viagogo = tabStats(fmt.data.valueRanges[1].values, { profitColumn: 9, paidColumn: 8 });
 
     const overdue = collectOverdue(raw.data.valueRanges[1].values, fmt.data.valueRanges[1].values);
 
