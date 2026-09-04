@@ -108,7 +108,7 @@ button:hover{background:rgba(139,124,247,.4)}
 .foot{color:#8286b4;font-size:12px;margin-top:8px}
 </style></head><body>
 <div class="top"><h1>RUNNING COSTS</h1><div>
-<a class="nav" href="/">Sales</a><a class="nav" href="/orders">Orders</a><a class="nav" href="/pnl">P&amp;L</a></div></div>
+<a class="nav" href="/">Sales</a><a class="nav" href="/orders">Orders</a><a class="nav" href="/monthly">Monthly</a><a class="nav" href="/pnl">P&amp;L</a></div></div>
 
 <div class="panel"><div class="cards">
 ${card(sumByCur(monthly),"Per month")}${card(sumByCur(annualised),"Per year")}

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "check": "node --check api/dashboard.js && node --check api/orders.js && node --check api/pnl.js && node --check api/costs.js && node --check api/sync.js && node --test",
+    "check": "node --check api/dashboard.js && node --check api/orders.js && node --check api/monthly.js && node --check api/pnl.js && node --check api/costs.js && node --check api/sync.js && node --test",
     "test": "node --test"
   },
   "engines": {

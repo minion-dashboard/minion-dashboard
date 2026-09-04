@@ -77,7 +77,7 @@ tr.warn td{background:rgba(255,80,120,.10)}tr.warn td:first-child{box-shadow:ins
 .foot{color:#8286b4;font-size:12px;margin-top:8px}
 </style></head><body>
 <div class="top"><h1>PROFIT &amp; INVENTORY</h1><div>
-<a class="nav" href="/">Sales</a><a class="nav" href="/orders">Orders</a><a class="nav" href="/costs">Costs</a></div></div>
+<a class="nav" href="/">Sales</a><a class="nav" href="/orders">Orders</a><a class="nav" href="/monthly">Monthly</a><a class="nav" href="/costs">Costs</a></div></div>
 
 <div class="panel"><div class="cards">
 ${card(totalProfit,"Realised profit")}${card(ticketsHeld,"Tickets unsold")}${card(totalTied,"Cash tied up")}

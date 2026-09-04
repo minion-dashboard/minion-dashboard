@@ -7,6 +7,7 @@ profit and inventory estimates, and running costs.
 
 - `/` — Lysted and Viagogo sales plus overdue Viagogo payments
 - `/orders` — imported purchase orders and confirmation checks
+- `/monthly` — orders, tickets, spend, and realised profit by purchase month
 - `/pnl` — purchase/sale matching, realised profit, and unsold inventory
 - `/costs` — recurring and one-off business costs
 
@@ -16,7 +17,7 @@ profit and inventory estimates, and running costs.
 | --- | --- |
 | `Sheet1` | A Event, C Date, D Order ID, G Quantity, H Payout, I Profit |
 | `Viagogo` | A Event, C Date, D Order ID, G Quantity, H Payout, I Paid status |
-| `Orders` | A Event, B Date, C Venue, D Section, E Row, F Seats, G Quantity, H Cost, I Order ID, J Account, K Status |
+| `Orders` | A Event, B Event date, C Venue, D Section, E Row, F Seats, G Quantity, H Cost, I Order ID, J Account, K Status, L Purchase date |
 | `Costs` | A Item, B Category, C Provider, D Amount, E Cycle, F Start date, G Status, H Notes |
 
 The `Costs` and `ImportLog` tabs are created automatically if they are missing.
@@ -55,6 +56,11 @@ Lysted, Viagogo, and Ticketmaster and imports:
 The importer is duplicate-safe in two ways: `ImportLog` records each Fastmail
 message ID, and destination rows are inserted or updated by marketplace order ID.
 It preserves manual `Confirmed`, `Paid`, and `Cancelled` states.
+
+New Ticketmaster imports store their Fastmail received timestamp as the purchase
+date in column L of `Orders`. The monthly page can also recover this date from
+`ImportLog`. Monthly reporting starts on 1 September 2026; older and undated
+orders are excluded rather than assigned to a guessed month.
 
 ### Moving from the old Google Apps Scripts
 
