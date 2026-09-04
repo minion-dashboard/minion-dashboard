@@ -31,6 +31,20 @@ test("groups order count, tickets, spend and profit by purchase month", () => {
   ]);
 });
 
+test("keeps GBP, USD and EUR totals separate within one month", () => {
+  const gbp = { purchaseDate: "2026-09-02T10:00:00Z", qty: "2", cost: { cur: "£", amt: 200 } };
+  const usd = { purchaseDate: "2026-09-03T10:00:00Z", qty: "3", cost: { cur: "$", amt: 300 } };
+  const eur = { purchaseDate: "2026-09-04T10:00:00Z", qty: "1", cost: { cur: "€", amt: 90 } };
+  const summaries = [
+    { orders: [gbp], sales: [{}], issue: "", profitVal: 50, profitCur: "£" },
+    { orders: [usd], sales: [{}], issue: "", profitVal: 75, profitCur: "$" },
+    { orders: [eur], sales: [{}], issue: "", profitVal: -10, profitCur: "€" }
+  ];
+  const [september] = buildMonthly([gbp, usd, eur], summaries);
+  assert.deepEqual(september.spendByCurrency, { "£": 200, "$": 300, "€": 90 });
+  assert.deepEqual(september.profitByCurrency, { "£": 50, "$": 75, "€": -10 });
+});
+
 test("keeps orders with missing dates visible and flags unsafe profit", () => {
   const order = { purchaseDate: "", qty: "2", cost: { cur: "$", amt: 100 } };
   const [month] = buildMonthly([order], [{

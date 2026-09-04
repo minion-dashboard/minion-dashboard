@@ -2,20 +2,33 @@ const { buildGroups, summarise, tokens } = require("../lib/finance");
 const { buildMonthly, isTrackedPurchase, monthKey } = require("../lib/monthly");
 const { authenticate } = require("../lib/security");
 const { client, sheetId } = require("../lib/sheets");
-const { dayKey, esc, pairedRows, parseMoney } = require("../lib/utils");
+const { dayKey, esc, money, pairedRows, parseMoney } = require("../lib/utils");
 
 function card(value, label) {
   return `<div class="card"><div class="n">${esc(value)}</div><div class="l">${esc(label)}</div></div>`;
 }
 
+function amount(row, kind, currency) {
+  const values = row[`${kind}ByCurrency`] || {};
+  return money(currency, Number(values[currency]) || 0);
+}
+
+function amountCell(row, kind, currency) {
+  const value = Number((row[`${kind}ByCurrency`] || {})[currency]) || 0;
+  return `<td class="${kind === "profit" ? value < 0 ? "neg" : value > 0 ? "pos" : "" : ""}">${esc(money(currency, value))}</td>`;
+}
+
 function render(months, now = new Date()) {
   const currentKey = monthKey(now.toISOString());
   const current = months.find(month => month.key === currentKey) || {
-    orders: 0, tickets: 0, spendText: "-", profitText: "-"
+    orders: 0, tickets: 0,
+    spendByCurrency: { "£": 0, "$": 0, "€": 0 },
+    profitByCurrency: { "£": 0, "$": 0, "€": 0 }
   };
   const rows = months.map(month => `<tr class="${month.key ? "" : "unknown"}">
     <td>${esc(month.label)}</td><td>${month.orders}</td><td>${month.tickets}</td>
-    <td>${esc(month.spendText)}</td><td class="${month.profitValue === null ? "" : month.profitValue < 0 ? "neg" : "pos"}">${esc(month.profitText)}</td>
+    ${amountCell(month, "spend", "£")}${amountCell(month, "spend", "$")}${amountCell(month, "spend", "€")}
+    ${amountCell(month, "profit", "£")}${amountCell(month, "profit", "$")}${amountCell(month, "profit", "€")}
     <td>${month.reviewEvents || "-"}</td></tr>`).join("");
 
   return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -29,14 +42,14 @@ a.nav{color:#cfd2f4;text-decoration:none;font-size:13px;border:1px solid rgba(25
 .phead{padding:13px 20px;border-bottom:1px solid rgba(255,255,255,.10);font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#c3c6ea}.pbody{padding:6px 8px;overflow-x:auto}
 .cards{display:flex;flex-wrap:wrap;gap:12px;padding:14px}.card{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);border-radius:16px;padding:14px 20px;min-width:160px;box-shadow:inset 0 1px 0 rgba(255,255,255,.16)}
 .card .n{font-size:22px;font-weight:700;color:#dcd6ff;text-shadow:0 0 18px rgba(160,150,255,.45)}.card .l{font-size:11px;color:#a7abd6;margin-top:3px;letter-spacing:.08em;text-transform:uppercase}
-table{width:100%;border-collapse:collapse;min-width:680px}td,th{padding:11px 12px;font-size:14px;text-align:left;border-bottom:1px solid rgba(255,255,255,.09)}th{color:#a7abd6;font-size:11px;letter-spacing:.1em;text-transform:uppercase}tr:last-child td{border-bottom:none}
+table{width:100%;border-collapse:collapse;min-width:980px}td,th{padding:11px 12px;font-size:14px;text-align:left;border-bottom:1px solid rgba(255,255,255,.09)}th{color:#a7abd6;font-size:11px;letter-spacing:.1em;text-transform:uppercase}th.group{text-align:center;color:#d4d6f5;border-left:1px solid rgba(255,255,255,.09)}tr:last-child td{border-bottom:none}
 .pos{color:#9be7b4}.neg{color:#ff9dbb}.unknown td{background:rgba(240,180,90,.08);color:#f3d39a}.foot{color:#9296bf;font-size:12px;line-height:1.5;margin-top:8px}
 @media(max-width:700px){body{padding:12px}.top{padding:16px}.card{min-width:calc(50% - 6px);padding:12px}.card .n{font-size:19px}}
 </style></head><body>
 <div class="top"><h1>MONTHLY PERFORMANCE</h1><div><a class="nav" href="/">Sales</a><a class="nav" href="/orders">Orders</a><a class="nav" href="/pnl">P&amp;L</a><a class="nav" href="/costs">Costs</a></div></div>
-<div class="panel"><div class="phead">This month</div><div class="cards">${card(current.orders,"Orders placed")}${card(current.tickets,"Tickets bought")}${card(current.spendText,"Purchase spend")}${card(current.profitText,"Realised profit")}</div></div>
-<div class="panel"><div class="phead">Performance by purchase month &middot; September 2026 onward</div><div class="pbody"><table><tr><th>Purchase month</th><th>Orders</th><th>Tickets</th><th>Spend</th><th>Realised profit</th><th>Events to review</th></tr>${rows || '<tr><td colspan="6" style="padding:18px;color:#8286b4">No purchases have been tracked since September 2026.</td></tr>'}</table></div></div>
-<div class="foot">Tracking starts on 1 September 2026. Months use the date each Ticketmaster confirmation reached Fastmail. Profit is the current realised profit from those purchases, not the date the sale was paid. When one event was purchased across multiple months, profit is allocated in proportion to purchase cost.</div>
+<div class="panel"><div class="phead">This month</div><div class="cards">${card(current.orders,"Orders placed")}${card(current.tickets,"Tickets bought")}${card(amount(current,"spend","£"),"UK spend")}${card(amount(current,"spend","$"),"US spend")}${card(amount(current,"spend","€"),"Euro spend")}${card(amount(current,"profit","£"),"UK profit")}${card(amount(current,"profit","$"),"US profit")}${card(amount(current,"profit","€"),"Euro profit")}</div></div>
+<div class="panel"><div class="phead">Performance by purchase month &middot; September 2026 onward</div><div class="pbody"><table><thead><tr><th rowspan="2">Purchase month</th><th rowspan="2">Orders</th><th rowspan="2">Tickets</th><th class="group" colspan="3">Purchase spend</th><th class="group" colspan="3">Realised profit</th><th rowspan="2">Events to review</th></tr><tr><th>GBP (£)</th><th>USD ($)</th><th>EUR (€)</th><th>GBP (£)</th><th>USD ($)</th><th>EUR (€)</th></tr></thead><tbody>${rows || '<tr><td colspan="10" style="padding:18px;color:#8286b4">No purchases have been tracked since September 2026.</td></tr>'}</tbody></table></div></div>
+<div class="foot">Tracking starts on 1 September 2026. Totals are separated by the currency recorded on each order or profit entry; the site does not guess currency from the venue. Profit is attributed to the month the tickets were purchased, not the date the sale was paid.</div>
 </body></html>`;
 }
 

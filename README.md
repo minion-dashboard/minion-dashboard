@@ -62,6 +62,8 @@ New Ticketmaster imports store their Fastmail received timestamp as the purchase
 date in column L of `Orders`. The monthly page can also recover this date from
 `ImportLog`. Monthly reporting starts on 1 September 2026; older and undated
 orders are excluded rather than assigned to a guessed month.
+Purchase spend and profit are displayed separately in GBP, USD, and EUR; currencies
+are never converted or combined into a misleading total.
 
 Viagogo emails do not contain profit. Use **Manage profits** from the Viagogo
 panel to enter or edit it. Entered values are stored in column J and feed the
