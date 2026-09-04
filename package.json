@@ -1,7 +1,15 @@
 {
   "name": "minion-tickets-dashboard",
   "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "check": "node --check api/dashboard.js && node --check api/orders.js && node --check api/pnl.js && node --check api/costs.js && node --test",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
-    "googleapis": "^144.0.0"
+    "googleapis": "^178.0.0"
   }
 }
