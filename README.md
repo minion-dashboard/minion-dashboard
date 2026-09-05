@@ -67,9 +67,9 @@ are never converted or combined into a misleading total.
 
 Viagogo emails do not contain profit. Use **Manage profits** from the Viagogo
 panel to enter or edit it. Entered values are stored in column J and feed the
-Viagogo dashboard total. The monthly report uses entered marketplace profit
-when every sale for a matched event has a value; otherwise it retains the
-purchase-cost calculation so an unfilled value is never treated as zero.
+Viagogo dashboard total. Monthly profit uses only the profit supplied by Lysted
+and profit manually entered for Viagogo; it never substitutes an estimated
+payout-minus-cost figure. Missing profit entries are flagged for review.
 
 ### Moving from the old Google Apps Scripts
 

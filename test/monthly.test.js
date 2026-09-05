@@ -18,7 +18,7 @@ test("groups order count, tickets, spend and profit by purchase month", () => {
   const januaryOrder = { purchaseDate: "2026-01-12T10:00:00Z", qty: "2", cost: { cur: "£", amt: 200 } };
   const februaryOrder = { purchaseDate: "2026-02-03T10:00:00Z", qty: "1", cost: { cur: "£", amt: 100 } };
   const summaries = [{
-    orders: [januaryOrder, februaryOrder], sales: [{}], issue: "",
+    orders: [januaryOrder, februaryOrder], sales: [{ profit: { cur: "£", amt: 150 } }], issue: "",
     profitVal: 150, profitCur: "£"
   }];
   const months = buildMonthly([januaryOrder, februaryOrder], summaries);
@@ -36,13 +36,23 @@ test("keeps GBP, USD and EUR totals separate within one month", () => {
   const usd = { purchaseDate: "2026-09-03T10:00:00Z", qty: "3", cost: { cur: "$", amt: 300 } };
   const eur = { purchaseDate: "2026-09-04T10:00:00Z", qty: "1", cost: { cur: "€", amt: 90 } };
   const summaries = [
-    { orders: [gbp], sales: [{}], issue: "", profitVal: 50, profitCur: "£" },
-    { orders: [usd], sales: [{}], issue: "", profitVal: 75, profitCur: "$" },
-    { orders: [eur], sales: [{}], issue: "", profitVal: -10, profitCur: "€" }
+    { orders: [gbp], sales: [{ profit: { cur: "£", amt: 50 } }], issue: "", profitVal: 999, profitCur: "£" },
+    { orders: [usd], sales: [{ profit: { cur: "$", amt: 75 } }], issue: "", profitVal: 999, profitCur: "$" },
+    { orders: [eur], sales: [{ profit: { cur: "€", amt: -10 } }], issue: "", profitVal: 999, profitCur: "€" }
   ];
   const [september] = buildMonthly([gbp, usd, eur], summaries);
   assert.deepEqual(september.spendByCurrency, { "£": 200, "$": 300, "€": 90 });
   assert.deepEqual(september.profitByCurrency, { "£": 50, "$": 75, "€": -10 });
+});
+
+test("a supplied dollar profit is assigned only to dollar purchases", () => {
+  const gbp = { purchaseDate: "2026-09-02T10:00:00Z", qty: "2", cost: { cur: "£", amt: 200 } };
+  const usd = { purchaseDate: "2026-09-03T10:00:00Z", qty: "2", cost: { cur: "$", amt: 200 } };
+  const [september] = buildMonthly([gbp, usd], [{
+    orders: [gbp, usd], sales: [{ profit: { cur: "$", amt: 300 } }], issue: "Mixed currencies",
+    profitVal: null, profitCur: null
+  }]);
+  assert.deepEqual(september.profitByCurrency, { "£": 0, "$": 300, "€": 0 });
 });
 
 test("keeps orders with missing dates visible and flags unsafe profit", () => {
@@ -57,17 +67,17 @@ test("keeps orders with missing dates visible and flags unsafe profit", () => {
   assert.equal(month.profitText, "-");
 });
 
-test("older purchases affect event profit without appearing in the report", () => {
+test("older purchases receive their share without appearing in the report", () => {
   const oldOrder = { purchaseDate: "2026-08-20T10:00:00Z", qty: "2", cost: { cur: "£", amt: 200 } };
   const trackedOrder = { purchaseDate: "2026-09-02T10:00:00Z", qty: "1", cost: { cur: "£", amt: 100 } };
   const [september] = buildMonthly([trackedOrder], [{
-    orders: [oldOrder, trackedOrder], sales: [{}], issue: "", profitVal: 150, profitCur: "£"
+    orders: [oldOrder, trackedOrder], sales: [{ profit: { cur: "£", amt: 150 } }], issue: "", profitVal: 999, profitCur: "£"
   }]);
   assert.equal(september.key, "2026-09");
   assert.equal(september.profitText, "£50.00");
 });
 
-test("complete entered sale profits override the calculated event profit", () => {
+test("uses supplied sale profits instead of calculated event profit", () => {
   const order = { purchaseDate: "2026-09-02T10:00:00Z", qty: "2", cost: { cur: "£", amt: 200 } };
   const [september] = buildMonthly([order], [{
     orders: [order], sales: [{ profit: { cur: "£", amt: 80 } }, { profit: { cur: "£", amt: -10 } }],
@@ -76,11 +86,12 @@ test("complete entered sale profits override the calculated event profit", () =>
   assert.equal(september.profitText, "£70.00");
 });
 
-test("missing entered profit falls back to the safe calculation", () => {
+test("missing entered profit is not replaced by a calculation", () => {
   const order = { purchaseDate: "2026-09-02T10:00:00Z", qty: "2", cost: { cur: "£", amt: 200 } };
   const [september] = buildMonthly([order], [{
     orders: [order], sales: [{ profit: { cur: "£", amt: 80 } }, { profit: null }],
     issue: "", profitVal: 100, profitCur: "£"
   }]);
-  assert.equal(september.profitText, "£100.00");
+  assert.equal(september.profitText, "£80.00");
+  assert.equal(september.reviewEvents, 1);
 });

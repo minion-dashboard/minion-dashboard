@@ -4,11 +4,11 @@ const { esc, fmtDate, money, parseMoney, sumByCur } = require("../lib/utils");
 
 const TAB = "Viagogo";
 
-function normaliseProfit(value) {
+function normaliseProfit(value, defaultCurrency = "£") {
   const input = String(value == null ? "" : value).trim();
   if (!input) return "";
   if (input.length > 40) return null;
-  const parsed = parseMoney(input);
+  const parsed = parseMoney(input, defaultCurrency);
   if (!parsed || Math.abs(parsed.amt) > 10000000) return null;
   return money(parsed.cur, parsed.amt);
 }
@@ -33,7 +33,7 @@ table{width:100%;border-collapse:collapse;min-width:800px}td,th{padding:10px 12p
 <div class="top"><h1>VIAGOGO PROFITS</h1><div><a class="nav" href="/">Sales</a><a class="nav" href="/monthly">Monthly</a><a class="nav" href="/pnl">P&amp;L</a></div></div>
 <div class="panel"><div class="cards"><div class="card"><div class="n">${sales.length}</div><div class="l">Viagogo sales</div></div><div class="card"><div class="n">${entered}</div><div class="l">Profits entered</div></div><div class="card"><div class="n">${esc(totalProfit)}</div><div class="l">Entered profit</div></div></div></div>
 <div class="panel"><div class="phead">Sales and manual profit</div><div class="pbody"><table><tr><th>Event</th><th>Event date</th><th>Order</th><th>Qty</th><th>Payout</th><th>Paid</th><th>Profit</th><th></th></tr>${rows || '<tr><td colspan="8" style="padding:18px;color:#8286b4">No Viagogo sales yet.</td></tr>'}</table></div></div>
-<div class="foot">Enter the final profit for each sale, including the currency symbol where needed. A number without a symbol is treated as pounds. Enter a negative amount for a loss; submit a blank value to clear an entry.</div>
+<div class="foot">Enter the final profit for each sale. A number without a symbol uses the same currency as that sale's payout. Enter a negative amount for a loss; submit a blank value to clear an entry.</div>
 <script>document.querySelectorAll(".edit-profit").forEach(function(button){button.addEventListener("click",function(){var value=prompt("Profit for Viagogo order "+button.dataset.order+" (for example £120 or -£25):",button.dataset.profit);if(value===null)return;var url="?profit="+encodeURIComponent(button.dataset.order)+"&amount="+encodeURIComponent(value);fetch(url,{method:"POST",headers:{"X-CSRF-Token":"${token}"}}).then(function(r){return r.ok?location.reload():r.text().then(function(t){throw new Error(t);});}).catch(function(e){alert("Failed: "+e.message);});});});</script>
 </body></html>`;
 }
@@ -48,12 +48,13 @@ module.exports = async (req, res) => {
     if (orderId !== null) {
       if (!requireMutation(req, res)) return;
       if (!orderId || orderId.length > 200) return res.status(400).send("Invalid order ID");
-      const profit = normaliseProfit(url.searchParams.get("amount"));
-      if (profit === null) return res.status(400).send("Enter a valid profit amount");
-      const ids = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${TAB}!D:D` });
-      const rows = ids.data.values || [];
-      const index = rows.findIndex((row, rowIndex) => rowIndex > 0 && String(row[0] || "").trim() === orderId.trim());
+      const saleRows = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${TAB}!A:J` });
+      const rows = saleRows.data.values || [];
+      const index = rows.findIndex((row, rowIndex) => rowIndex > 0 && String(row[3] || "").trim() === orderId.trim());
       if (index < 0) return res.status(404).send("Order not found");
+      const payout = parseMoney(rows[index][7]);
+      const profit = normaliseProfit(url.searchParams.get("amount"), payout ? payout.cur : "£");
+      if (profit === null) return res.status(400).send("Enter a valid profit amount");
       await sheets.spreadsheets.values.update({ spreadsheetId, range: `${TAB}!J${index + 1}`,
         valueInputOption: "RAW", requestBody: { values: [[profit]] } });
       return res.status(200).send("OK");
