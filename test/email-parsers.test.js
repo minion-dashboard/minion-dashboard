@@ -9,6 +9,11 @@ test("classifies supported marketplace messages", () => {
   assert.equal(classifyEmail({ from: "orders@viagogo.com", subject: "You sold your tickets" }), "viagogo");
   assert.equal(classifyEmail({ from: "payments@viagogo.com", subject: "Your viagogo payment" }), "payment");
   assert.equal(classifyEmail({ from: "info@ticketmaster.co.uk", subject: "Order confirmed" }), "ticketmaster");
+  assert.equal(classifyEmail({
+    from: "forwarding@example.com",
+    subject: "You Got Tickets To SAINT LEVANT - AFANDI WORLD TOUR",
+    body: "Order # 50-27420/SEA"
+  }), "ticketmaster");
   assert.equal(classifyEmail({ from: "news@example.com", subject: "Tickets" }), "");
 });
 

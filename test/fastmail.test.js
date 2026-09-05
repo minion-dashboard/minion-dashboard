@@ -40,6 +40,7 @@ test("pages through more than one Fastmail result batch", async () => {
     const payload = JSON.parse(options.body);
     const query = payload.methodCalls[0][1];
     calls.push(query.position);
+    assert.ok(query.filter.conditions[1].conditions.some(condition => condition.subject === "You Got Tickets"));
     const ids = query.position === 0 ? ["m2"] : ["m1"];
     return { methodResponses: [
       ["Email/query", { ids, total: 2 }, "query"],
