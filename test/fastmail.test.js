@@ -4,12 +4,24 @@ const {
   bodyText, candidateEmail, fetchRecentEmails, mailAccountIds, normaliseEmail
 } = require("../lib/fastmail");
 
-test("prefers the Fastmail plain-text body", () => {
+test("combines plain and HTML bodies so full confirmations are not discarded", () => {
   const email = {
     bodyValues: { plain: { value: "Plain confirmation" }, html: { value: "<b>HTML</b>" } },
     textBody: [{ partId: "plain" }], htmlBody: [{ partId: "html" }]
   };
-  assert.equal(bodyText(email), "Plain confirmation");
+  assert.equal(bodyText(email), "Plain confirmation\nHTML");
+});
+
+test("keeps US order details that exist only in the HTML body", () => {
+  const email = {
+    bodyValues: {
+      plain: { value: "View your order online." },
+      html: { value: "<p>Order # 50-27420/SEA</p><p>Sec MEZ23, Row N, Seat 1 - 6</p><p>Total: &#x24;294.60</p>" }
+    },
+    textBody: [{ partId: "plain" }], htmlBody: [{ partId: "html" }]
+  };
+  assert.match(bodyText(email), /Order # 50-27420\/SEA/);
+  assert.match(bodyText(email), /Total: \$294\.60/);
 });
 
 test("converts an HTML-only message into parser-friendly text", () => {

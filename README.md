@@ -63,6 +63,8 @@ token, reads multiple result pages (up to 5,000 messages per account), and only
 downloads the bodies of relevant messages. This covers confirmations in shared
 or catch-all mailboxes as well as forwarded US Ticketmaster mail whose sender is
 not searchable as Ticketmaster.
+Both plain-text and HTML email sections are parsed together because some US
+Ticketmaster confirmations keep the order details only in the HTML section.
 
 New Ticketmaster imports store their Fastmail received timestamp as the purchase
 date in column L of `Orders`. The monthly page can also recover this date from
