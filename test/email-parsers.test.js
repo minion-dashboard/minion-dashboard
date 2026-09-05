@@ -73,3 +73,21 @@ test("parses a US Ticketmaster seat range", () => {
   assert.equal(record.qty, "4");
   assert.equal(record.cost, "$440.00");
 });
+
+test("parses the Saint Levant US confirmation received on September 1", () => {
+  const record = parseTicketmaster(
+    "You Got Tickets To SAINT LEVANT - AFANDI WORLD TOUR",
+    "Order Confirmed Order # 50-27420/SEA SAINT LEVANT - AFANDI WORLD TOUR " +
+      "Mon · May 10, 2027 · 8:00 PM Paramount Theatre — Seattle, Washington " +
+      "Get Directions Sec MEZ23, Row N, Seat 1 - 6 Payment Method VISA — 7758 Total: $294.60",
+    "orders@example.com"
+  );
+  assert.equal(record.order_id, "50-27420/SEA");
+  assert.equal(record.event, "SAINT LEVANT - AFANDI WORLD TOUR");
+  assert.equal(record.date, "10/05/2027 20:00");
+  assert.equal(record.section, "MEZ23");
+  assert.equal(record.row, "N");
+  assert.equal(record.seats, "1-6");
+  assert.equal(record.qty, "6");
+  assert.equal(record.cost, "$294.60");
+});

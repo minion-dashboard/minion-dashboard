@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { bodyText, normaliseEmail } = require("../lib/fastmail");
+const { bodyText, fetchRecentEmails, normaliseEmail } = require("../lib/fastmail");
 
 test("prefers the Fastmail plain-text body", () => {
   const email = {
@@ -28,4 +28,29 @@ test("normalises JMAP address and message fields", () => {
     id: "m1", messageId: "<example>", subject: "Sale", from: "sales@example.com",
     to: "catchall@example.com", receivedAt: "2026-09-04T10:00:00Z", body: "Body"
   });
+});
+
+test("pages through more than one Fastmail result batch", async () => {
+  const calls = [];
+  const request = async (url, token, options) => {
+    if (!options) return {
+      apiUrl: "https://api.example.test/jmap",
+      primaryAccounts: { "urn:ietf:params:jmap:mail": "account-1" }
+    };
+    const payload = JSON.parse(options.body);
+    const query = payload.methodCalls[0][1];
+    calls.push(query.position);
+    const ids = query.position === 0 ? ["m2"] : ["m1"];
+    return { methodResponses: [
+      ["Email/query", { ids, total: 2 }, "query"],
+      ["Email/get", { list: ids.map(id => ({
+        id, subject: "Order", from: [{ email: "orders@ticketmaster.com" }],
+        to: [{ email: "catchall@example.com" }], receivedAt: "2026-09-01T12:00:00Z",
+        bodyValues: { p: { value: id } }, textBody: [{ partId: "p" }]
+      })) }, "get"]
+    ] };
+  };
+  const emails = await fetchRecentEmails({ token: "test-token", pageSize: 1, limit: 10, request });
+  assert.deepEqual(calls, [0, 1]);
+  assert.deepEqual(emails.map(email => email.id), ["m2", "m1"]);
 });
