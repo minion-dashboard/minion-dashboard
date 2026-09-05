@@ -142,8 +142,10 @@ document.getElementById("sync-inbox").addEventListener("click", function(){
   fetch("/api/sync", {method:"POST",headers:{"X-CSRF-Token":"${token}"}})
     .then(function(r){ return r.ok ? r.json() : r.text().then(function(t){ throw new Error(t); }); })
     .then(function(result){
-      status.textContent = result.imported + " imported, " + result.review + " to review";
-      setTimeout(function(){ location.reload(); }, 1200);
+      status.textContent = result.imported + " imported, " + result.review + " to review; " +
+        result.mailboxMessagesChecked + " emails checked in " + result.mailAccountsChecked + " mail account(s)";
+      alert("Sync complete: " + status.textContent);
+      location.reload();
     })
     .catch(function(error){ status.textContent = "Sync failed"; alert("Failed: " + error.message); button.disabled = false; });
 });

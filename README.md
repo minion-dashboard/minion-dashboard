@@ -58,12 +58,11 @@ The importer is duplicate-safe in two ways: `ImportLog` records each Fastmail
 message ID, and destination rows are inserted or updated by marketplace order ID.
 It preserves manual `Confirmed`, `Paid`, and `Cancelled` states.
 
-The inbox scan reads multiple Fastmail result pages (up to 5,000 relevant
-messages per sync), so confirmations from the start of a busy lookback window
-are not omitted when more than 500 matching emails arrive.
-US Ticketmaster confirmations are also selected by their confirmation subject
-and verified by the order-number content, covering mail forwarded through an
-address whose visible sender is not searchable as Ticketmaster.
+The inbox scan checks headers across every mail account available to the API
+token, reads multiple result pages (up to 5,000 messages per account), and only
+downloads the bodies of relevant messages. This covers confirmations in shared
+or catch-all mailboxes as well as forwarded US Ticketmaster mail whose sender is
+not searchable as Ticketmaster.
 
 New Ticketmaster imports store their Fastmail received timestamp as the purchase
 date in column L of `Orders`. The monthly page can also recover this date from

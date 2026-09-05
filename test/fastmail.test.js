@@ -1,6 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { bodyText, fetchRecentEmails, normaliseEmail } = require("../lib/fastmail");
+const {
+  bodyText, candidateEmail, fetchRecentEmails, mailAccountIds, normaliseEmail
+} = require("../lib/fastmail");
 
 test("prefers the Fastmail plain-text body", () => {
   const email = {
@@ -30,6 +32,23 @@ test("normalises JMAP address and message fields", () => {
   });
 });
 
+test("selects forwarded US confirmations from their subject", () => {
+  assert.equal(candidateEmail({
+    from: [{ email: "forwarder@example.com" }],
+    subject: "You Got Tickets To SAINT LEVANT - AFANDI WORLD TOUR"
+  }), true);
+  assert.equal(candidateEmail({ from: [{ email: "news@example.com" }], subject: "Weekly news" }), false);
+});
+
+test("includes every accessible Fastmail mail account", () => {
+  const mail = "urn:ietf:params:jmap:mail";
+  assert.deepEqual(mailAccountIds({ accounts: {
+    primary: { accountCapabilities: { [mail]: {} } },
+    shared: { accountCapabilities: { [mail]: {} } },
+    calendar: { accountCapabilities: {} }
+  } }, "primary"), ["primary", "shared"]);
+});
+
 test("pages through more than one Fastmail result batch", async () => {
   const calls = [];
   const request = async (url, token, options) => {
@@ -38,20 +57,28 @@ test("pages through more than one Fastmail result batch", async () => {
       primaryAccounts: { "urn:ietf:params:jmap:mail": "account-1" }
     };
     const payload = JSON.parse(options.body);
+    if (payload.methodCalls[0][0] === "Email/get") {
+      const ids = payload.methodCalls[0][1].ids;
+      return { methodResponses: [["Email/get", { list: ids.map(id => ({
+        id, subject: "Order", from: [{ email: "orders@ticketmaster.com" }],
+        to: [{ email: "catchall@example.com" }], receivedAt: "2026-09-01T12:00:00Z",
+        bodyValues: { p: { value: id } }, textBody: [{ partId: "p" }]
+      })) }, "bodies"]] };
+    }
     const query = payload.methodCalls[0][1];
     calls.push(query.position);
-    assert.ok(query.filter.conditions[1].conditions.some(condition => condition.subject === "You Got Tickets"));
+    assert.deepEqual(query.filter, { after: query.filter.after });
     const ids = query.position === 0 ? ["m2"] : ["m1"];
     return { methodResponses: [
       ["Email/query", { ids, total: 2 }, "query"],
       ["Email/get", { list: ids.map(id => ({
-        id, subject: "Order", from: [{ email: "orders@ticketmaster.com" }],
-        to: [{ email: "catchall@example.com" }], receivedAt: "2026-09-01T12:00:00Z",
-        bodyValues: { p: { value: id } }, textBody: [{ partId: "p" }]
-      })) }, "get"]
+        id, subject: "Order", from: [{ email: "orders@ticketmaster.com" }]
+      })) }, "headers"]
     ] };
   };
   const emails = await fetchRecentEmails({ token: "test-token", pageSize: 1, limit: 10, request });
   assert.deepEqual(calls, [0, 1]);
   assert.deepEqual(emails.map(email => email.id), ["m2", "m1"]);
+  assert.equal(emails.mailAccountsChecked, 1);
+  assert.equal(emails.mailboxMessagesChecked, 2);
 });
