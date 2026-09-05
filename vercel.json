@@ -1,8 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "redirects": [
+    { "source": "/orders", "destination": "/monthly", "permanent": true }
+  ],
   "rewrites": [
     { "source": "/", "destination": "/api/dashboard" },
-    { "source": "/orders", "destination": "/api/orders" },
     { "source": "/viagogo", "destination": "/api/viagogo" },
     { "source": "/monthly", "destination": "/api/monthly" },
     { "source": "/pnl", "destination": "/api/pnl" },

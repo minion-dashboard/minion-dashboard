@@ -6,7 +6,7 @@ profit and inventory estimates, and running costs.
 ## Routes
 
 - `/` — Lysted and Viagogo sales plus overdue Viagogo payments
-- `/orders` — imported purchase orders and confirmation checks
+- `/orders` — redirects to `/monthly`
 - `/viagogo` — all Viagogo sales with editable manual profit
 - `/monthly` — orders, tickets, spend, and realised profit by purchase month
 - `/pnl` — purchase/sale matching, realised profit, and unsold inventory
@@ -18,7 +18,7 @@ profit and inventory estimates, and running costs.
 | --- | --- |
 | `Sheet1` | A Event, C Date, D Order ID, G Quantity, H Payout, I Profit |
 | `Viagogo` | A Event, C Date, D Order ID, G Quantity, H Payout, I Paid status, J Manual profit |
-| `Orders` | A Event, B Event date, C Venue, D Section, E Row, F Seats, G Quantity, H Cost, I Order ID, J Account, K Status, L Purchase date |
+| `Orders` | A Event, B Event date, C Venue, D Section, E Row, F Seats, G Quantity, H Cost, I Order ID, J Account, K Status, L Purchase date, M Currency |
 | `Costs` | A Item, B Category, C Provider, D Amount, E Cycle, F Start date, G Status, H Notes |
 
 The `Costs` and `ImportLog` tabs are created automatically if they are missing.
@@ -64,6 +64,11 @@ date in column L of `Orders`. The monthly page can also recover this date from
 orders are excluded rather than assigned to a guessed month.
 Purchase spend and profit are displayed separately in GBP, USD, and EUR; currencies
 are never converted or combined into a misleading total.
+The Monthly page also lists every order placed in the current month and includes
+the former Orders-page quantity confirmation control. The importer stores order
+currency separately in column M so Google Sheets column formatting cannot relabel
+a dollar order as pounds. Recent confirmations are safely re-read on the next sync
+to fill this column for orders already imported.
 
 Viagogo emails do not contain profit. Use **Manage profits** from the Viagogo
 panel to enter or edit it. Entered values are stored in column J and feed the

@@ -1,6 +1,13 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { idAppears, mergeRecords } = require("../lib/importer");
+const { currencySymbol, idAppears, mergeRecords } = require("../lib/importer");
+
+test("preserves the currency stated in the Ticketmaster total", () => {
+  assert.equal(currencySymbol("$780.00"), "$");
+  assert.equal(currencySymbol("£120.00"), "£");
+  assert.equal(currencySymbol("€450.00"), "€");
+  assert.equal(currencySymbol("780.00"), "");
+});
 
 test("payment matching requires a complete order ID", () => {
   assert.equal(idAppears("Payment for order 12345678 is complete", "12345678"), true);

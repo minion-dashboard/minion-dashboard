@@ -77,7 +77,7 @@ tr.warn td{background:rgba(255,80,120,.10)}tr.warn td:first-child{box-shadow:ins
 .foot{color:#8286b4;font-size:12px;margin-top:8px}
 </style></head><body>
 <div class="top"><h1>PROFIT &amp; INVENTORY</h1><div>
-<a class="nav" href="/">Sales</a><a class="nav" href="/orders">Orders</a><a class="nav" href="/monthly">Monthly</a><a class="nav" href="/costs">Costs</a></div></div>
+<a class="nav" href="/">Sales</a><a class="nav" href="/monthly">Monthly &amp; Orders</a><a class="nav" href="/costs">Costs</a></div></div>
 
 <div class="panel"><div class="cards">
 ${card(totalProfit,"Realised profit")}${card(ticketsHeld,"Tickets unsold")}${card(totalTied,"Cash tied up")}
@@ -104,7 +104,7 @@ module.exports = async (req, res) => {
   try {
     const sheets = client();
     const spreadsheetId = sheetId();
-    const ranges = [`${ORDERS_TAB}!A:K`, `${LYSTED_TAB}!A:I`, `${VIAGOGO_TAB}!A:I`];
+    const ranges = [`${ORDERS_TAB}!A:M`, `${LYSTED_TAB}!A:I`, `${VIAGOGO_TAB}!A:I`];
     const [fmt, raw] = await Promise.all([
       sheets.spreadsheets.values.batchGet({spreadsheetId, ranges}),
       sheets.spreadsheets.values.batchGet({spreadsheetId, ranges, valueRenderOption:"UNFORMATTED_VALUE"}),
@@ -115,7 +115,10 @@ module.exports = async (req, res) => {
     // Orders: Event A, Date B, Venue C, Qty G, Cost H, OrderID I
     const oF = F(0), oR = R(0);
     const orders = pairedRows(oF,oR).filter(({row})=>(row[8]||"").toString().trim()).map(({row:r,raw:rr})=>{
-      return { event:r[0]||"", venue:r[2]||"", date:rr[1], qty:r[6], cost:parseMoney(r[7]),
+      const parsedCost = parseMoney(r[7]);
+      const storedCurrency = ["£","$","€"].includes(String(r[12]||"").trim()) ? String(r[12]).trim() : "";
+      const cost = parsedCost ? {cur:storedCurrency||parsedCost.cur,amt:parsedCost.amt} : null;
+      return { event:r[0]||"", venue:r[2]||"", date:rr[1], qty:r[6], cost,
                dayKey:dayKey(rr[1]), tokens:tokens(r[0]) };
     });
 
