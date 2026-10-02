@@ -6,17 +6,17 @@ const { dayKey, parseMoney } = require("../lib/utils");
 function order(event, qty, cost, date = "20/09/2026") {
   return { event, qty, cost: parseMoney(cost), date, dayKey: dayKey(date), tokens: tokens(event), venue: "Arena" };
 }
-function sale(event, qty, payout, date = "20/09/2026") {
-  return { event, qty, payout: parseMoney(payout), date, dayKey: dayKey(date), tokens: tokens(event) };
+function sale(event, qty, payout, date = "20/09/2026", profit = "") {
+  return { event, qty, payout: parseMoney(payout), profit: parseMoney(profit), date, dayKey: dayKey(date), tokens: tokens(event) };
 }
 
 test("partial sales apportion cost and inventory correctly", () => {
   const [row] = summarise(buildGroups(
     [order("Coldplay Wembley", 4, "£400")],
-    [sale("Coldplay", 2, "£300")]
+    [sale("Coldplay", 2, "£300", "20/09/2026", "£37")]
   ), new Date("2026-09-04T00:00:00Z"));
-  assert.equal(row.profitStr, "£100.00");
-  assert.equal(row.roi, 50);
+  assert.equal(row.profitStr, "£37.00");
+  assert.equal(row.roi, 18.5);
   assert.equal(row.unsoldQty, 2);
   assert.equal(row.unsoldCostStr, "£200.00");
 });

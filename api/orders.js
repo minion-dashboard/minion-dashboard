@@ -1,6 +1,7 @@
+const { lockMutations } = require('../lib/sheet-lock');
 const { authenticate, csrfToken, requireMutation } = require("../lib/security");
 const { client, sheetId } = require("../lib/sheets");
-const { esc, fmtDate, pairedRows, parseMoney, positiveInteger, sumByCur } = require("../lib/utils");
+const { esc, fmtDate, pairedRows, parseMoney, sheetMoney, money, positiveInteger, sumByCur } = require("../lib/utils");
 const ORDERS_TAB = "Orders";
 
 module.exports = async (req, res) => {
@@ -28,16 +29,14 @@ module.exports = async (req, res) => {
       return res.status(200).send("OK");
     }
 
-    const [fmt,raw] = await Promise.all([
-      sheets.spreadsheets.values.get({spreadsheetId,range:`${ORDERS_TAB}!A:K`}),
-      sheets.spreadsheets.values.get({spreadsheetId,range:`${ORDERS_TAB}!A:K`,valueRenderOption:"UNFORMATTED_VALUE"}),
-    ]);
+    const fmt = await sheets.spreadsheets.values.get({spreadsheetId,range:`${ORDERS_TAB}!A:M`,valueRenderOption:"UNFORMATTED_VALUE"});
+    const raw = fmt;
     const F=(fmt.data.values||[]).slice(1), R=(raw.data.values||[]).slice(1);
     const orders = pairedRows(F,R).filter(({row})=>(row[8]||"").toString().trim()).map(({row:r,raw:rr})=>({
       event:r[0]||"",date:fmtDate(rr[1]),venue:r[2]||"",section:r[3]||"",row:r[4]||"",
-      seats:r[5]||"",qty:r[6]||"",cost:r[7]||"",order:r[8]||"",account:r[9]||"",status:r[10]||""}));
+      seats:r[5]||"",qty:r[6]||"",cost:sheetMoney(r[7],rr[7],r[12]) ? money(sheetMoney(r[7],rr[7],r[12]).cur,sheetMoney(r[7],rr[7],r[12]).amt) : "Currency needs review",order:r[8]||"",account:r[9]||"",status:r[10]||""}));
     const flagged = orders.filter(o=>o.status==="Check");
-    const totalCost = sumByCur(orders.map(order => parseMoney(order.cost)).filter(Boolean));
+    const totalCost = sumByCur(orders.map(order => sheetMoney(order.cost)).filter(Boolean));
 
     const rowsHtml = orders.map(o=>{
       const flag=o.status==="Check";
@@ -104,3 +103,5 @@ function confirmOrder(id){
     return res.status(500).send("Order data could not be loaded.");
   }
 };
+
+module.exports = lockMutations(module.exports);

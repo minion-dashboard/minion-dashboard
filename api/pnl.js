@@ -1,7 +1,7 @@
 const { buildGroups, summarise, tokens } = require("../lib/finance");
 const { authenticate } = require("../lib/security");
 const { client, sheetId } = require("../lib/sheets");
-const { dayKey, esc, fmtDate, pairedRows, parseMoney, sumByCur } = require("../lib/utils");
+const { dayKey, esc, fmtDate, pairedRows, saleValues, sheetMoney, activeSale, sumByCur } = require("../lib/utils");
 
 const ORDERS_TAB = "Orders";
 const LYSTED_TAB = "Sheet1";
@@ -23,7 +23,7 @@ function render(rows){
                       .sort((a,b) => (a.daysToEvent===null?9e9:a.daysToEvent) - (b.daysToEvent===null?9e9:b.daysToEvent));
   const soon = unsold.filter(r => r.daysToEvent !== null && r.daysToEvent >= 0 && r.daysToEvent <= SOON_DAYS);
 
-  const totalProfit = sumByCur(rows.filter(r=>r.profitVal!==null).map(r=>({cur:r.profitCur,amt:r.profitVal})));
+  const totalProfit = sumByCur(rows.flatMap(r => r.profitAmounts || []));
   const totalTied   = sumByCur(unsold.flatMap(r=>r.unsoldMoney));
   const ticketsHeld = unsold.reduce((n,r)=>n+r.unsoldQty,0);
   const winners = matched.filter(r=>r.profitVal>0).length;
@@ -94,7 +94,7 @@ ${invRows||'<tr><td colspan="7" style="padding:18px;color:#8286b4">Nothing unsol
 ${pnlRows||'<tr><td colspan="7" style="padding:18px;color:#8286b4">No matched sales yet.</td></tr>'}
 </table></div></div>
 
-<div class="foot">Purchases matched to sales by event name &amp; date. Costs are apportioned per ticket, so partly-sold events show profit on the sold portion only. Profit is shown only where cost and revenue share a currency.</div>
+<div class="foot">Purchases matched to sales by event name &amp; date. Profit uses only Lysted supplied profit and manually entered Viagogo profit. Missing entries are flagged; no profit is calculated from payouts. Cost apportionment is used only for inventory estimates and ROI. Currencies are kept separate.</div>
 </body></html>`;
 }
 
@@ -104,18 +104,16 @@ module.exports = async (req, res) => {
   try {
     const sheets = client();
     const spreadsheetId = sheetId();
-    const ranges = [`${ORDERS_TAB}!A:M`, `${LYSTED_TAB}!A:I`, `${VIAGOGO_TAB}!A:I`];
-    const [fmt, raw] = await Promise.all([
-      sheets.spreadsheets.values.batchGet({spreadsheetId, ranges}),
-      sheets.spreadsheets.values.batchGet({spreadsheetId, ranges, valueRenderOption:"UNFORMATTED_VALUE"}),
-    ]);
+    const ranges = [`${ORDERS_TAB}!A:M`, `${LYSTED_TAB}!A:J`, `${VIAGOGO_TAB}!A:K`];
+    const fmt = await sheets.spreadsheets.values.batchGet({spreadsheetId, ranges, valueRenderOption: "UNFORMATTED_VALUE"});
+    const raw = fmt;
     const F = i => (fmt.data.valueRanges[i].values||[]).slice(1);
     const R = i => (raw.data.valueRanges[i].values||[]).slice(1);
 
     // Orders: Event A, Date B, Venue C, Qty G, Cost H, OrderID I
     const oF = F(0), oR = R(0);
     const orders = pairedRows(oF,oR).filter(({row})=>(row[8]||"").toString().trim()).map(({row:r,raw:rr})=>{
-      const parsedCost = parseMoney(r[7]);
+      const parsedCost = sheetMoney(r[7], rr[7], String(r[12] || "").trim());
       const storedCurrency = ["£","$","€"].includes(String(r[12]||"").trim()) ? String(r[12]).trim() : "";
       const cost = parsedCost ? {cur:storedCurrency||parsedCost.cur,amt:parsedCost.amt} : null;
       return { event:r[0]||"", venue:r[2]||"", date:rr[1], qty:r[6], cost,
@@ -123,14 +121,14 @@ module.exports = async (req, res) => {
     });
 
     // Sales: Event A, Date C, Qty G, Payout H  (both tabs share this shape)
-    const mkSales = (idx) => {
+    const mkSales = (idx, profitColumn) => {
       const sF = F(idx), sR = R(idx);
-      return pairedRows(sF,sR).filter(({row})=>(row[3]||"").toString().trim() && String(row[8]||"").trim()!=="Cancelled").map(({row:r,raw:rr})=>{
-        return { event:r[0]||"", date:rr[2], qty:r[6], payout:parseMoney(r[7]),
+      return pairedRows(sF,sR).filter(({row})=>(row[3]||"").toString().trim() && activeSale(row)).map(({row:r,raw:rr})=>{
+        return { event:r[0]||"", date:rr[2], qty:r[6], ...saleValues(r, rr, profitColumn),
                  dayKey:dayKey(rr[2]), tokens:tokens(r[0]) };
       });
     };
-    const sales = mkSales(1).concat(mkSales(2));
+    const sales = mkSales(1, 8).concat(mkSales(2, 9));
 
     const rows = summarise(buildGroups(orders, sales));
     res.setHeader("Content-Type","text/html; charset=utf-8");

@@ -1,15 +1,24 @@
+const { lockMutations } = require('../lib/sheet-lock');
 const { authenticate, csrfToken, requireMutation } = require("../lib/security");
 const { client, sheetId } = require("../lib/sheets");
-const { esc, fmtDate, parseMoney, sumByCur, toDate } = require("../lib/utils");
+const { esc, fmtDate, saleValues, activeSale, pairedRows, money, sumByCur, toDate } = require("../lib/utils");
 
 const LYSTED_TAB = "Sheet1";
 const VIAGOGO_TAB = "Viagogo";
 
-function sumMoney(values) { return sumByCur(values.map(value => parseMoney(value, "$"))); }
+function sumMoney(values) { return sumByCur(values); }
 
-function tabStats(rows, { profitColumn = null, paidColumn = null } = {}) {
-  const data = (rows || []).slice(1).filter((r) =>
-    (r[3] || "").toString().trim() && (paidColumn === null || String(r[paidColumn] || "").trim() !== "Cancelled"));
+function tabStats(rows, { profitColumn = null, paidColumn = null, raw = rows } = {}) {
+  const data = pairedRows((rows || []).slice(1), (raw || []).slice(1))
+    .filter(({ row }) => String(row[3] || "").trim() && activeSale(row))
+    .map(({ row, raw }) => {
+      const { payout, profit } = saleValues(row, raw, profitColumn);
+      const copy = [...row];
+      copy[7] = payout ? money(payout.cur, payout.amt) : "Currency needs review";
+      copy[profitColumn] = profit ? money(profit.cur, profit.amt) : "";
+      copy.payout = payout; copy.profit = profit;
+      return copy;
+    });
   const recent = data.slice(-8).reverse().map((r) => ({
     event: r[0] || "", date: fmtDate(r[2]), qty: r[6] || "", payout: r[7] || "",
     profit: profitColumn === null ? null : (r[profitColumn] || ""),
@@ -17,8 +26,8 @@ function tabStats(rows, { profitColumn = null, paidColumn = null } = {}) {
   }));
   const out = {
     count: data.length,
-    payout: sumMoney(data.map((r) => r[7])),
-    profit: profitColumn === null ? null : sumMoney(data.map((r) => r[profitColumn])),
+    payout: sumMoney(data.map((r) => r.payout)),
+    profit: profitColumn === null ? null : sumMoney(data.map((r) => r.profit)),
     recent,
   };
   if (paidColumn !== null) {
@@ -144,7 +153,8 @@ document.getElementById("sync-inbox").addEventListener("click", function(){
     .then(function(result){
       status.textContent = result.imported + " imported, " + result.review + " to review; " +
         result.mailboxMessagesChecked + " emails checked in " + result.mailAccountsChecked + " mail account(s)";
-      alert("Sync complete: " + status.textContent);
+      var warnings = (result.warnings || []).join("\\n");
+      alert((result.scanComplete === false ? "Partial sync: " : "Sync complete: ") + status.textContent + (warnings ? "\\n" + warnings : ""));
       location.reload();
     })
     .catch(function(error){ status.textContent = "Sync failed"; alert("Failed: " + error.message); button.disabled = false; });
@@ -187,15 +197,11 @@ module.exports = async (req, res) => {
       return res.status(200).send("OK");
     }
 
-    const ranges = [`${LYSTED_TAB}!A:I`, `${VIAGOGO_TAB}!A:J`];
-    const [fmt, raw] = await Promise.all([
-      sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges }),
-      sheets.spreadsheets.values.batchGet({
-        spreadsheetId, ranges, valueRenderOption: "UNFORMATTED_VALUE",
-      }),
-    ]);
-    const lysted = tabStats(fmt.data.valueRanges[0].values, { profitColumn: 8 });
-    const viagogo = tabStats(fmt.data.valueRanges[1].values, { profitColumn: 9, paidColumn: 8 });
+    const ranges = [`${LYSTED_TAB}!A:J`, `${VIAGOGO_TAB}!A:K`];
+    const fmt = await sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges, valueRenderOption: "UNFORMATTED_VALUE" });
+    const raw = fmt;
+    const lysted = tabStats(fmt.data.valueRanges[0].values, { profitColumn: 8, raw: raw.data.valueRanges[0].values });
+    const viagogo = tabStats(fmt.data.valueRanges[1].values, { profitColumn: 9, paidColumn: 8, raw: raw.data.valueRanges[1].values });
 
     const overdue = collectOverdue(raw.data.valueRanges[1].values, fmt.data.valueRanges[1].values);
 
@@ -207,3 +213,7 @@ module.exports = async (req, res) => {
     return res.status(500).send("Dashboard data could not be loaded.");
   }
 };
+
+module.exports = lockMutations(module.exports);
+
+module.exports._test = { tabStats };

@@ -24,7 +24,7 @@ module.exports = async (req, res) => {
     return res.status(200).json(result);
   } catch (error) {
     console.error("Fastmail sync error", error);
-    return res.status(500).send("Inbox sync could not be completed.");
+    return res.status(error.statusCode || 500).send(error.statusCode === 409 ? error.message : "Inbox sync could not be completed.");
   }
 };
 

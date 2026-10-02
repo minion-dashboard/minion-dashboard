@@ -1,6 +1,7 @@
+const { lockMutations } = require('../lib/sheet-lock');
 const { authenticate, csrfToken, requireMutation } = require("../lib/security");
 const { client, sheetId } = require("../lib/sheets");
-const { esc, fmtDate, money, pairedRows, parseMoney, sumByCur, toDate } = require("../lib/utils");
+const { esc, fmtDate, money, pairedRows, parseMoney, sheetMoney, sumByCur, toDate } = require("../lib/utils");
 
 const COSTS_TAB = "Costs";
 const RENEWAL_SOON_DAYS = 7;
@@ -57,7 +58,7 @@ function render(items){
   const oneOffs = items.filter(i=>String(i.cycle).toLowerCase()==="one-off").map(i=>i.amount).filter(Boolean);
 
   // group by category
-  const cats = {};
+  const cats = Object.create(null);
   active.forEach(i=>{ (cats[i.category||"Uncategorised"] = cats[i.category||"Uncategorised"] || []).push(i); });
   const catRows = Object.keys(cats).sort().map(c=>{
     const list = cats[c];
@@ -140,7 +141,7 @@ ${cancelled.length?`<div class="panel"><div class="phead">Cancelled</div><div cl
 ${cancelled.map(i=>`<tr><td>${esc(i.item)}</td><td>${esc(i.provider)}</td><td>${esc(i.amountStr)}</td><td>${esc(i.cycle)}</td></tr>`).join("")}
 </table></div></div>`:""}
 
-<div class="foot">Annual, quarterly and weekly costs are converted to a monthly equivalent for the run rate. One-off spend is listed separately. Mark an item Cancelled in the Costs tab to retire it.</div>
+<div class="foot">Annual, quarterly and weekly costs are converted to a monthly equivalent for the run rate. One-off spend is listed separately. Amounts without a verified currency are excluded from totals. Mark an item Cancelled in the Costs tab to retire it.</div>
 <script>
 function addCost(e){
   e.preventDefault();
@@ -195,13 +196,11 @@ module.exports = async (req,res) => {
       return res.status(200).send("OK");
     }
 
-    const [fmt,raw]=await Promise.all([
-      sheets.spreadsheets.values.get({spreadsheetId,range:`${COSTS_TAB}!A:H`}),
-      sheets.spreadsheets.values.get({spreadsheetId,range:`${COSTS_TAB}!A:H`,valueRenderOption:"UNFORMATTED_VALUE"}),
-    ]);
+    const fmt=await sheets.spreadsheets.values.get({spreadsheetId,range:`${COSTS_TAB}!A:H`,valueRenderOption:"UNFORMATTED_VALUE"});
+    const raw=fmt;
     const F=(fmt.data.values||[]).slice(1), R=(raw.data.values||[]).slice(1);
     const items=pairedRows(F,R).filter(({row})=>(row[0]||"").toString().trim()).map(({row:r,raw:rr})=>{
-      const amount=parseMoney(r[3]);
+      const amount=sheetMoney(r[3],rr[3]);
       const m=monthlyEquivalent(amount,r[4]);
       const nr=nextRenewal(rr[5],r[4]);
       return { item:r[0]||"", category:r[1]||"", provider:r[2]||"",
@@ -219,5 +218,7 @@ module.exports = async (req,res) => {
     return res.status(500).send("Cost data could not be loaded.");
   }
 };
+
+module.exports = lockMutations(module.exports);
 
 module.exports._test = { addMonthsClamped, monthlyEquivalent, nextRenewal };

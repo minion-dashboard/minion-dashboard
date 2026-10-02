@@ -40,7 +40,7 @@ test("normalises JMAP address and message fields", () => {
   });
   assert.deepEqual(result, {
     id: "m1", messageId: "<example>", subject: "Sale", from: "sales@example.com",
-    to: "catchall@example.com", receivedAt: "2026-09-04T10:00:00Z", body: "Body"
+    to: "catchall@example.com", receivedAt: "2026-09-04T10:00:00Z", sentAt: "", body: "Body"
   });
 });
 
@@ -93,4 +93,28 @@ test("pages through more than one Fastmail result batch", async () => {
   assert.deepEqual(emails.map(email => email.id), ["m2", "m1"]);
   assert.equal(emails.mailAccountsChecked, 1);
   assert.equal(emails.mailboxMessagesChecked, 2);
+});
+
+test('reports incomplete mailbox scans and respects advertised JMAP get limits', async () => {
+  const core = 'urn:ietf:params:jmap:core';
+  const mail = 'urn:ietf:params:jmap:mail';
+  const positions = [];
+  const request = async (url, token, options) => {
+    if (!options) return { apiUrl:'https://api.example.test/jmap',primaryAccounts:{[mail]:'account'},capabilities:{[core]:{maxObjectsInGet:1}} };
+    const payload = JSON.parse(options.body);
+    const query = payload.methodCalls[0][1];
+    positions.push(query.position);
+    assert.equal(query.limit,1);
+    return { methodResponses:[['Email/query',{ids:['m'+query.position],total:10},'query'],['Email/get',{list:[{id:'m'+query.position,from:[{email:'news@example.com'}],subject:'News'}]},'headers']] };
+  };
+  const result = await fetchRecentEmails({token:'test',limit:2,pageSize:500,request});
+  assert.deepEqual(positions,[0,1]);
+  assert.equal(result.scanComplete,false);
+  assert.match(result.warnings[0], /stopped at 2/);
+  assert.equal(result.mailboxMessagesChecked,2);
+});
+
+test('invalid numeric HTML entities cannot abort an entire import', () => {
+  const result = bodyText({bodyValues:{h:{value:'<p>Text &#x110000; &#999999999;</p>'}},htmlBody:[{partId:'h'}]});
+  assert.match(result,/Text/);
 });

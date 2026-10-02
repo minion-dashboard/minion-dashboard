@@ -1,6 +1,7 @@
+const { lockMutations } = require('../lib/sheet-lock');
 const { authenticate, csrfToken, requireMutation } = require("../lib/security");
 const { client, sheetId } = require("../lib/sheets");
-const { esc, fmtDate, money, parseMoney, sumByCur } = require("../lib/utils");
+const { esc, fmtDate, money, parseMoney, saleValues, sheetMoney, sumByCur } = require("../lib/utils");
 
 const TAB = "Viagogo";
 
@@ -9,13 +10,14 @@ function normaliseProfit(value, defaultCurrency = "£") {
   if (!input) return "";
   if (input.length > 40) return null;
   const parsed = parseMoney(input, defaultCurrency);
-  if (!parsed || Math.abs(parsed.amt) > 10000000) return null;
+  if (!parsed || !["£", "$", "€"].includes(parsed.cur) || Math.abs(parsed.amt) > 10000000) return null;
   return money(parsed.cur, parsed.amt);
 }
 
 function render(sales, token) {
-  const entered = sales.filter(sale => sale.profit).length;
-  const totalProfit = sumByCur(sales.map(sale => parseMoney(sale.profit)).filter(Boolean));
+  const active = sales.filter(sale => String(sale.paid || "").trim().toLowerCase() !== "cancelled");
+  const entered = active.filter(sale => sale.profit).length;
+  const totalProfit = sumByCur(active.map(sale => sheetMoney(sale.profit)).filter(Boolean));
   const rows = sales.map(sale => `<tr><td>${esc(sale.event)}</td><td>${esc(sale.date)}</td><td>${esc(sale.order)}</td>
     <td>${esc(sale.qty)}</td><td>${esc(sale.payout)}</td><td>${esc(sale.paid)}</td>
     <td class="${sale.profit && (parseMoney(sale.profit) || {}).amt < 0 ? "neg" : "pos"}">${esc(sale.profit || "Not entered")}</td>
@@ -33,7 +35,7 @@ table{width:100%;border-collapse:collapse;min-width:800px}td,th{padding:10px 12p
 <div class="top"><h1>VIAGOGO PROFITS</h1><div><a class="nav" href="/">Sales</a><a class="nav" href="/monthly">Monthly</a><a class="nav" href="/pnl">P&amp;L</a></div></div>
 <div class="panel"><div class="cards"><div class="card"><div class="n">${sales.length}</div><div class="l">Viagogo sales</div></div><div class="card"><div class="n">${entered}</div><div class="l">Profits entered</div></div><div class="card"><div class="n">${esc(totalProfit)}</div><div class="l">Entered profit</div></div></div></div>
 <div class="panel"><div class="phead">Sales and manual profit</div><div class="pbody"><table><tr><th>Event</th><th>Event date</th><th>Order</th><th>Qty</th><th>Payout</th><th>Paid</th><th>Profit</th><th></th></tr>${rows || '<tr><td colspan="8" style="padding:18px;color:#8286b4">No Viagogo sales yet.</td></tr>'}</table></div></div>
-<div class="foot">Enter the final profit for each sale. A number without a symbol uses the same currency as that sale's payout. Enter a negative amount for a loss; submit a blank value to clear an entry.</div>
+<div class="foot">Enter the final profit for each sale. Totals exclude cancelled sales. A number without a symbol uses the known payout currency; otherwise enter a currency symbol. Enter a negative amount for a loss; submit a blank value to clear an entry.</div>
 <script>document.querySelectorAll(".edit-profit").forEach(function(button){button.addEventListener("click",function(){var value=prompt("Profit for Viagogo order "+button.dataset.order+" (for example £120 or -£25):",button.dataset.profit);if(value===null)return;var url="?profit="+encodeURIComponent(button.dataset.order)+"&amount="+encodeURIComponent(value);fetch(url,{method:"POST",headers:{"X-CSRF-Token":"${token}"}}).then(function(r){return r.ok?location.reload():r.text().then(function(t){throw new Error(t);});}).catch(function(e){alert("Failed: "+e.message);});});});</script>
 </body></html>`;
 }
@@ -48,27 +50,27 @@ module.exports = async (req, res) => {
     if (orderId !== null) {
       if (!requireMutation(req, res)) return;
       if (!orderId || orderId.length > 200) return res.status(400).send("Invalid order ID");
-      const saleRows = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${TAB}!A:J` });
+      const saleRows = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${TAB}!A:K`, valueRenderOption: "UNFORMATTED_VALUE" });
       const rows = saleRows.data.values || [];
       const index = rows.findIndex((row, rowIndex) => rowIndex > 0 && String(row[3] || "").trim() === orderId.trim());
       if (index < 0) return res.status(404).send("Order not found");
-      const payout = parseMoney(rows[index][7]);
-      const profit = normaliseProfit(url.searchParams.get("amount"), payout ? payout.cur : "£");
+      const payout = sheetMoney(rows[index][7], rows[index][7], rows[index][10]);
+      const profit = normaliseProfit(url.searchParams.get("amount"), payout ? payout.cur : "");
       if (profit === null) return res.status(400).send("Enter a valid profit amount");
       await sheets.spreadsheets.values.update({ spreadsheetId, range: `${TAB}!J${index + 1}`,
         valueInputOption: "RAW", requestBody: { values: [[profit]] } });
       return res.status(200).send("OK");
     }
-    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${TAB}!A:J` });
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${TAB}!A:K`, valueRenderOption: "UNFORMATTED_VALUE" });
     const sheetRows = response.data.values || [];
-    if (!sheetRows[0] || sheetRows[0][9] !== "Profit") {
-      await sheets.spreadsheets.values.update({ spreadsheetId, range: `${TAB}!J1`,
-        valueInputOption: "RAW", requestBody: { values: [["Profit"]] } });
-    }
-    const sales = sheetRows.slice(1).filter(row => String(row[3] || "").trim()).map(row => ({
-      event: row[0] || "", date: fmtDate(row[2]), order: String(row[3]), qty: row[6] || "",
-      payout: row[7] || "", paid: row[8] || "", profit: row[9] || ""
-    })).reverse();
+    const sales = sheetRows.slice(1).filter(row => String(row[3] || "").trim()).map(row => {
+      const { payout, profit } = saleValues(row);
+      return {
+        event: row[0] || "", date: fmtDate(row[2]), order: String(row[3]), qty: row[6] || "",
+        payout: payout ? money(payout.cur, payout.amt) : "Currency needs review", paid: row[8] || "",
+        profit: profit ? money(profit.cur, profit.amt) : ""
+      };
+    }).reverse();
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", "no-store");
     return res.status(200).send(render(sales, csrfToken()));
@@ -77,5 +79,7 @@ module.exports = async (req, res) => {
     return res.status(500).send("Viagogo sales could not be loaded.");
   }
 };
+
+module.exports = lockMutations(module.exports);
 
 module.exports._test = { normaliseProfit, render };
